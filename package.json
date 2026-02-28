@@ -1,0 +1,72 @@
+{
+  "name": "@agent-forge-copilot/cli",
+  "version": "0.1.7",
+  "description": "Context Engineering Toolkit — generate GitHub Copilot customization files (agents, prompts, instructions, skills, hooks, MCP servers, agentic workflows) via a multi-agent AI pipeline with interactive CLI and 11 built-in templates.",
+  "type": "module",
+  "bin": {
+    "forge": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup && node scripts/copy-assets.mjs",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "test": "node --test dist/**/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "copilot",
+    "github-copilot",
+    "context-engineering",
+    "agents",
+    "prompts",
+    "instructions",
+    "skills",
+    "hooks",
+    "mcp",
+    "mcp-server",
+    "agentic-workflow",
+    "vscode",
+    "cli",
+    "scaffold",
+    "ai-agents",
+    "multi-agent",
+    "code-generation",
+    "developer-tools"
+  ],
+  "author": "Agent-Forge Contributors",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiratouchmhp/agent-forge.git"
+  },
+  "homepage": "https://github.com/jiratouchmhp/agent-forge#readme",
+  "bugs": {
+    "url": "https://github.com/jiratouchmhp/agent-forge/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.0.0",
+    "chalk": "^5.3.0",
+    "commander": "^13.0.0",
+    "fs-extra": "^11.2.0",
+    "ora": "^8.1.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
