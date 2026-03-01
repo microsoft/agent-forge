@@ -86,7 +86,7 @@ const VALID_VSCODE_TOOLS = new Set([
   // Terminal
   "run_in_terminal", "get_terminal_output",
   // Diagnostics
-  "get_errors", "test_failure",
+  "test_failure",
   // Git / VCS
   "get_changed_files",
   // Notebook
@@ -326,6 +326,10 @@ const VALID_FIELDS: Partial<Record<ArtifactType, Set<string>>> = {
     "argument-hint",
     "user-invocable",
     "disable-model-invocation",
+    "license",
+    "compatibility",
+    "metadata",
+    "context",
     "infer",           // deprecated — auto-migrated, kept to avoid stripping before migration
   ]),
 };
@@ -443,6 +447,62 @@ async function validateArtifactsInDir(
   const copilotInstructions = path.join(dir, "copilot-instructions.md");
   if (await fs.pathExists(copilotInstructions)) {
     passed.push(copilotInstructions);
+  }
+
+  // Cross-reference validation: agents property references
+  const agentsDirForXref = path.join(dir, "agents");
+  if (await fs.pathExists(agentsDirForXref)) {
+    const agentFiles = (await fs.readdir(agentsDirForXref)).filter((f) => f.endsWith(".agent.md"));
+    const agentNames = new Set(agentFiles.map((f) => f.replace(".agent.md", "")));
+
+    // Collect all agent frontmatters for cross-reference
+    const orchestrators: Array<{ file: string; agents: string[]; name: string }> = [];
+    const subagents: Array<{ file: string; name: string }> = [];
+
+    for (const file of agentFiles) {
+      const filePath = path.join(agentsDirForXref, file);
+      const content = await fs.readFile(filePath, "utf-8");
+      const { frontmatter } = parseFrontmatter(content);
+      if (!frontmatter) continue;
+
+      const name = file.replace(".agent.md", "");
+
+      // Collect orchestrators (agents with "agents" property)
+      if (frontmatter.agents && Array.isArray(frontmatter.agents) && (frontmatter.agents as string[]).length > 0) {
+        const agentsList = (frontmatter.agents as string[]).filter((a) => a !== "*");
+        orchestrators.push({ file: filePath, agents: agentsList, name });
+
+        // Check each referenced subagent exists
+        for (const subagentName of agentsList) {
+          if (!agentNames.has(subagentName)) {
+            findings.push({
+              severity: "warning",
+              file: filePath,
+              message: `Orchestrator references subagent "${subagentName}" but no "${subagentName}.agent.md" file exists`,
+              field: "agents",
+            });
+          }
+        }
+      }
+
+      // Collect subagents (user-invocable: false)
+      if (frontmatter["user-invocable"] === false) {
+        subagents.push({ file: filePath, name });
+      }
+    }
+
+    // Check that subagents are referenced by at least one orchestrator
+    const referencedSubagents = new Set(orchestrators.flatMap((o) => o.agents));
+    for (const sub of subagents) {
+      if (!referencedSubagents.has(sub.name)) {
+        findings.push({
+          severity: "warning",
+          file: sub.file,
+          message: `Agent "${sub.name}" has user-invocable: false but is not referenced in any orchestrator's "agents" array — it cannot be invoked`,
+          field: "user-invocable",
+        });
+      }
+    }
   }
 
   // MCP config (.vscode/mcp.json — check parent dir)
@@ -708,6 +768,34 @@ async function validateFile(
       });
       hasError = true;
     }
+
+    // Validate agents property requires agent tool
+    if (frontmatter.agents && Array.isArray(frontmatter.agents) && (frontmatter.agents as unknown[]).length > 0) {
+      const tools = Array.isArray(frontmatter.tools) ? frontmatter.tools as string[] : [];
+      if (!tools.includes("agent") && !tools.includes("custom-agent") && !tools.includes("Task")) {
+        findings.push({
+          severity: "warning",
+          file: filePath,
+          message: 'Agent has "agents" property but "agent" tool is not in the tools list — subagents cannot be invoked without it',
+          field: "agents",
+          fixable: true,
+        });
+      }
+    }
+
+    // Warn if orchestrator-style agent has edit/execute tools
+    if (frontmatter.agents && Array.isArray(frontmatter.agents) && (frontmatter.agents as unknown[]).length > 0) {
+      const tools = Array.isArray(frontmatter.tools) ? frontmatter.tools as string[] : [];
+      const hasEditTools = tools.some((t: string) => ["edit", "Edit", "MultiEdit", "Write", "execute", "shell", "Bash", "run_in_terminal"].includes(t));
+      if (hasEditTools) {
+        findings.push({
+          severity: "warning",
+          file: filePath,
+          message: 'Agent with "agents" property (orchestrator) has edit/execute tools — orchestrators should delegate implementation to subagents instead',
+          field: "tools",
+        });
+      }
+    }
   }
 
   // Validate tool names against known VS Code Copilot tools
@@ -797,6 +885,53 @@ async function validateFile(
         message: 'Skill description missing "DO NOT USE FOR:" exclusion phrases — may cause incorrect skill loading',
         field: "description",
         fixable: true,
+      });
+    }
+
+    // Skill description length check (agentskills.io spec: 1-1024 chars)
+    if (desc.length > 1024) {
+      findings.push({
+        severity: "warning",
+        file: filePath,
+        message: `Skill description is ${desc.length} characters — exceeds 1024 char limit per Agent Skills spec`,
+        field: "description",
+        fixable: false,
+      });
+    }
+  }
+
+  // Skill-specific checks: name format (lowercase, hyphens, no consecutive hyphens)
+  if (type === "skill" && frontmatter.name) {
+    const name = frontmatter.name as string;
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name) || /--/.test(name)) {
+      findings.push({
+        severity: "warning",
+        file: filePath,
+        message: `Skill name "${name}" must be lowercase letters, numbers, and single hyphens only (1-64 chars)`,
+        field: "name",
+        fixable: false,
+      });
+    }
+    if (name.length > 64) {
+      findings.push({
+        severity: "warning",
+        file: filePath,
+        message: `Skill name "${name}" exceeds 64 character limit`,
+        field: "name",
+        fixable: false,
+      });
+    }
+  }
+
+  // Skill-specific checks: body line count
+  if (type === "skill" && body.trim()) {
+    const lineCount = body.split("\n").length;
+    if (lineCount > 500) {
+      findings.push({
+        severity: "warning",
+        file: filePath,
+        message: `Skill body is ${lineCount} lines — exceeds recommended 500 line limit. Consider splitting into references/ subdirectory.`,
+        fixable: false,
       });
     }
   }

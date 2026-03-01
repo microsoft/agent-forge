@@ -160,9 +160,12 @@ function parseDurationToMs(str: string): number {
 
 /**
  * Parse Copilot CLI stdout for usage statistics.
+ * Strips ANSI escape codes before matching to handle colored terminal output.
  * Gracefully returns zeroed output if format is unrecognized.
  */
 export function parseCopilotOutput(stdout: string, exitCode: number): CliOutput {
+  // Strip ANSI escape codes that break regex matching on colored terminal output
+  const clean = stdout.replace(/\x1b\[[0-9;]*m/g, "");
   const result: CliOutput = {
     exitCode,
     premiumRequests: 0,
@@ -174,19 +177,19 @@ export function parseCopilotOutput(stdout: string, exitCode: number): CliOutput 
   };
 
   // Total usage est:        1 Premium request(s)
-  const pruMatch = stdout.match(/Total usage est:\s+(\d+)\s+Premium request/i);
+  const pruMatch = clean.match(/Total usage est:\s+(\d+)\s+Premium request/i);
   if (pruMatch) result.premiumRequests = parseInt(pruMatch[1], 10);
 
   // API time spent:         2m 12s
-  const apiTimeMatch = stdout.match(/API time spent:\s+(\S[\dm s]+)/i);
+  const apiTimeMatch = clean.match(/API time spent:\s+(\S[\dm s]+)/i);
   if (apiTimeMatch) result.apiTimeMs = parseDurationToMs(apiTimeMatch[1].trim());
 
   // Total session time:     2m 17s
-  const sessionTimeMatch = stdout.match(/Total session time:\s+(\S[\dm s]+)/i);
+  const sessionTimeMatch = clean.match(/Total session time:\s+(\S[\dm s]+)/i);
   if (sessionTimeMatch) result.sessionTimeMs = parseDurationToMs(sessionTimeMatch[1].trim());
 
   // Total code changes:     +77 -0
-  const codeMatch = stdout.match(/Total code changes:\s+\+(\d+)\s+-(\d+)/i);
+  const codeMatch = clean.match(/Total code changes:\s+\+(\d+)\s+-(\d+)/i);
   if (codeMatch) {
     result.codeChanges.added = parseInt(codeMatch[1], 10);
     result.codeChanges.removed = parseInt(codeMatch[2], 10);
@@ -196,7 +199,7 @@ export function parseCopilotOutput(stdout: string, exitCode: number): CliOutput 
   //  claude-sonnet-4.6       193.0k in, 5.0k out, 127.9k cached (Est. 1 Premium request)
   const tokenRegex = /^\s*(\S+)\s+([\d.]+k?)\s+in,\s+([\d.]+k?)\s+out,\s+([\d.]+k?)\s+cached\s+\(Est\.\s+(\d+)\s+Premium/gm;
   let tokenMatch;
-  while ((tokenMatch = tokenRegex.exec(stdout)) !== null) {
+  while ((tokenMatch = tokenRegex.exec(clean)) !== null) {
     result.tokenBreakdown.push({
       model: tokenMatch[1],
       tokensIn: tokenMatch[2],
@@ -240,16 +243,30 @@ export function aggregateCliOutputs(outputs: CliOutput[]): CliOutput {
   return combined;
 }
 
-/** Format token stats compactly: "193k in / 5k out" */
+/** Parse a token string like "46.2k" or "193.0k" to a number */
+function parseTokenValue(str: string): number {
+  const match = str.match(/^([\d.]+)(k?)$/i);
+  if (!match) return 0;
+  const val = parseFloat(match[1]);
+  return match[2] ? val * 1000 : val;
+}
+
+/** Format a raw token count to a compact string like "225.1k" */
+function formatTokenCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(Math.round(n));
+}
+
+/** Format token stats compactly: "46.2k in / 2.0k out" */
 export function formatTokens(breakdown: TokenBreakdown[]): string {
   if (breakdown.length === 0) return "";
-  const totalIn = breakdown.map(b => b.tokensIn).join("+");
-  const totalOut = breakdown.map(b => b.tokensOut).join("+");
-  // If single model, show clean values
   if (breakdown.length === 1) {
     return `${breakdown[0].tokensIn} in / ${breakdown[0].tokensOut} out`;
   }
-  return `${totalIn} in / ${totalOut} out`;
+  // Sum across all models for a clean total
+  const totalIn = breakdown.reduce((sum, b) => sum + parseTokenValue(b.tokensIn), 0);
+  const totalOut = breakdown.reduce((sum, b) => sum + parseTokenValue(b.tokensOut), 0);
+  return `${formatTokenCount(totalIn)} in / ${formatTokenCount(totalOut)} out`;
 }
 
 /** Options for launching Copilot CLI */
@@ -308,6 +325,7 @@ export function launchCopilotCli(
     });
 
     let stdoutBuf = "";
+    let stderrBuf = "";
 
     if (child.stdout) {
       child.stdout.on("data", (chunk: Buffer) => {
@@ -322,6 +340,8 @@ export function launchCopilotCli(
 
     if (child.stderr) {
       child.stderr.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        stderrBuf += text;
         // In non-quiet mode, echo stderr to terminal
         if (!options?.quiet) {
           process.stderr.write(chunk);
@@ -336,7 +356,8 @@ export function launchCopilotCli(
 
     child.on("close", (code) => {
       fs.removeSync(promptFilePath);
-      resolve(parseCopilotOutput(stdoutBuf, code ?? 0));
+      // Combine stdout + stderr — usage stats may appear in either stream
+      resolve(parseCopilotOutput(stdoutBuf + "\n" + stderrBuf, code ?? 0));
     });
   });
 }

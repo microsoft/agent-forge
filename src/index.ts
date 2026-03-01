@@ -6,7 +6,7 @@ import { listCommand } from "./commands/list.js";
 import { validateCommand } from "./commands/validate.js";
 import { checkCommand } from "./commands/check.js";
 import type { InitMode, GenerationMode, ArtifactType, ValidateOptions } from "./types.js";
-import type { AnalyzeStrategy, SpeedStrategy } from "./types.js";
+import type { AnalyzeStrategy, SpeedStrategy, AgentDesignPattern } from "./types.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -33,6 +33,7 @@ program
     "--use-cases <ids>",
     "Comma-separated template IDs to install (e.g., code-review,testing)",
   )
+  .option("--pattern <pattern>", "Agent design pattern: auto (AI decides), standalone (flat with handoffs), subagent (coordinator-worker)")
   .option("--skip-check", "Skip the prerequisite check", false)
   .action(async (opts) => {
     await initCommand({
@@ -44,6 +45,7 @@ program
       useCases: opts.useCases?.split(",").map((s: string) => s.trim()),
       speed: opts.speed as SpeedStrategy | undefined,
       skipCheck: opts.skipCheck,
+      agentDesignPattern: opts.pattern as AgentDesignPattern | undefined,
     });
   });
 

@@ -83,6 +83,8 @@ Check for existing Copilot customizations:
 - `.github/copilot-instructions.md` — repo-wide instructions
 - `AGENTS.md`, `Copilot.md`, `GEMINI.md`, `CODEX.md` — third-party agent instructions
 
+**IMPORTANT**: Ignore any files with the `forge-` prefix (e.g., `forge-brownfield-planner.agent.md`, `forge-agent-writer.agent.md`). These are **internal pipeline agents** used by AGENT-FORGE itself — they are NOT project customizations and must NOT be counted as existing artifacts.
+
 **Decision matrix for overlaps**:
 
 | Existing Artifact | Action |
@@ -124,6 +126,40 @@ Read actual source files from each layer. Extract:
 - Data layer (models/migrations) merges into backend agent — don't create a separate "database" agent
 - Test files belong to the agent that owns the source files, not a separate "testing" agent
 - If only 1 framework exists, plan 1 agent — even if there are many directories
+
+### Orchestration Pattern Decision
+
+After deciding agent count, decide how agents relate:
+
+| Condition | Pattern | Structure |
+|-----------|---------|----------|
+| 1-2 agents OR simple project | **`flat`** (default) | Peer agents with optional handoffs |
+| ≥3 agents + keywords: "review", "quality", "audit", "multi-perspective" | **`multi-perspective`** | Orchestrator + specialized reviewer subagents |
+| ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator + red/green/refactor subagents |
+| ≥3 agents + keywords: "plan", "research", "workflow", "coordinate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
+| ≥3 agents + clear dependency chain (plan → implement → review) | **`pipeline`** | Pipeline orchestrator + sequential stage subagents |
+
+**When pattern ≠ `flat`:**
+
+1. **Mark one agent as orchestrator** (`agentRole: "orchestrator"`):
+   - Set `agents: ["worker-1", "worker-2", ...]` listing all subagent names
+   - Set `userInvocable: true`, `disableModelInvocation: true`
+   - Tools: `["read", "search", "agent", "todo"]` — NO `edit` or `execute` (pure delegation)
+   - Responsibilities: coordination, decomposition, delegation, validation
+
+2. **Mark worker agents as subagents** (`agentRole: "subagent"`):
+   - Set `userInvocable: false` (hidden from dropdown, invoked by orchestrator)
+   - Set `disableModelInvocation: false` (allow orchestrator to invoke)
+   - Optionally set `model` for cost-efficient subagents
+   - Tools appropriate for their role
+
+**Note**: Don't create an orchestrator for ≤2 agents UNLESS the planning prompt includes a "Agent Design Pattern Override: SUBAGENT" section. When the user explicitly requests the subagent pattern, always create a coordinator even with 2 workers.
+
+3. **Orchestrator NEVER writes code** — delegates ALL implementation
+
+4. **Brownfield-specific**: If existing agents have `agents` property, avoid creating conflicting orchestration hierarchies. Extend existing orchestrators rather than creating competing ones.
+
+**Anti-pattern**: Don't create an orchestrator for ≤2 agents.
 
 ### Responsibility Writing (from scanned patterns)
 
@@ -186,6 +222,7 @@ Same as greenfield — `forge-plan.json` with the standard schema:
   "slug": "<derived-from-project-name>",
   "title": "<Project Name from README or package.json>",
   "description": "<project purpose from README>",
+  "orchestrationPattern": "flat",
   "agents": [ ... ],
   "prompt": { "slug": "...", "description": "..." }
 }
@@ -204,6 +241,7 @@ For an existing project scanned as: Next.js 14 (App Router) + Prisma + TailwindC
   "slug": "taskboard",
   "title": "Task Board",
   "description": "Project management task board with Next.js App Router, Prisma ORM, and TailwindCSS",
+  "orchestrationPattern": "flat",
   "agents": [
     {
       "name": "nextjs",
@@ -269,6 +307,10 @@ Your plan is INVALID if it contains any of the following:
 6. **Too many agents**: More agents than distinct frameworks/layers found in code
 7. **Missing skill triggers**: Skill description without `USE FOR:` and `DO NOT USE FOR:` phrases
 8. **Ignoring existing customizations**: Planning agents that duplicate what's already in `.github/`
+9. **Orchestrator for ≤2 agents**: Don't create an orchestrator when only 1-2 agents exist — use handoffs instead
+10. **Orchestrator that writes code**: Orchestrator agents must NEVER have `edit` or `execute` tools — they delegate everything
+11. **Subagent without orchestrator**: If any agent has `agentRole: "subagent"`, there MUST be an `agentRole: "orchestrator"` agent
+12. **Conflicting orchestrators**: Don't create an orchestrator when the project already has one — extend the existing one
 
 ---
 
@@ -286,6 +328,7 @@ Before writing `forge-plan.json`, verify ALL of these:
 | 6 | **No duplication** | Plan doesn't overlap with existing `.github/` customizations |
 | 7 | **Skill triggers** | Every skill description has ≥5 USE FOR + ≥3 DO NOT USE FOR phrases |
 | 8 | **No generic filler** | Zero responsibilities contain "best practices", "ensure quality", or "maintain standards" |
+| 9 | **Orchestration valid** | If orchestration pattern ≠ flat: one orchestrator exists, all subagents referenced in its `agents` array, orchestrator has no `edit`/`execute` tools |
 
 **If any check fails, revise the plan before writing.**
 
@@ -296,7 +339,8 @@ Before writing `forge-plan.json`, verify ALL of these:
 1. SCAN the codebase BEFORE planning — complete ALL 7 scanning steps
 2. Write ONLY `forge-plan.json` — never create artifact files
 3. Plan 1-4 agents matching ACTUAL project layers found in code
-4. Every plan field must trace back to something you SCANNED — never guess
-5. Do NOT ask clarifying questions — scan and decide
-6. Do NOT duplicate existing `.github/` customizations
-7. Stop immediately after writing the plan file
+4. When orchestration pattern ≠ `flat`, include `agentRole`, `agents`, `userInvocable`, and `disableModelInvocation` fields
+5. Every plan field must trace back to something you SCANNED — never guess
+6. Do NOT ask clarifying questions — scan and decide
+7. Do NOT duplicate existing `.github/` customizations
+8. Stop immediately after writing the plan file

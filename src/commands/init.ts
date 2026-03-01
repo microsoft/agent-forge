@@ -10,7 +10,6 @@ import {
   cleanupGenerationWorkspace,
   readPlanFile,
   prepareWorkspaceForPlan,
-  deriveProjectName,
 } from "../lib/scaffold.js";
 import { getGallery } from "../lib/gallery.js";
 import { detectWorkspace } from "../lib/detector.js";
@@ -36,7 +35,7 @@ import {
   hasWarnings,
   printMissingInstallGuide,
 } from "../lib/prerequisites.js";
-import type { InitOptions, InitMode, AnalyzeStrategy, GenerationMode, SpeedStrategy, WorkspaceInfo } from "../types.js";
+import type { InitOptions, InitMode, AnalyzeStrategy, GenerationMode, SpeedStrategy, AgentDesignPattern, WorkspaceInfo } from "../types.js";
 
 // ── Side-by-side AGENT-FORGE block art (6 rows) ───────────────────────
 const BANNER_ROWS = [
@@ -156,6 +155,29 @@ function detail(key: string, value: string): void {
   console.log(chalk.hex(DIM_BORDER)("  │ ") + chalk.hex(ACCENT)(key.padEnd(10)) + chalk.white(value));
 }
 
+/** Prompt user to select agent design pattern (standalone vs subagent) */
+async function selectAgentDesignPattern(options: InitOptions): Promise<AgentDesignPattern> {
+  if (options.agentDesignPattern) return options.agentDesignPattern;
+  return await select<AgentDesignPattern>({
+    message: "Agent design pattern:",
+    choices: [
+      {
+        value: "auto" as AgentDesignPattern,
+        name: `${chalk.green("Auto")}          ${chalk.dim("— AI decides the best pattern based on your description")} ${chalk.green("(recommended)")}`,
+      },
+      {
+        value: "standalone" as AgentDesignPattern,
+        name: `${chalk.white("Standalone")}    ${chalk.dim("— Independent agents with handoffs between them")}`,
+      },
+      {
+        value: "subagent" as AgentDesignPattern,
+        name: `${chalk.hex("#FFD700")("Subagent")}      ${chalk.dim("— Coordinator orchestrator + worker subagents (saves PRU)")} ${chalk.hex("#FFD700")("⚡")}`,
+      },
+    ],
+    default: "auto",
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  ENTRY POINT
 // ═══════════════════════════════════════════════════════════════════════
@@ -246,27 +268,21 @@ export async function initCommand(
 async function handleCreate(options: InitOptions): Promise<void> {
   sectionHeader("Create");
 
+  // Agent design pattern selection
+  const pattern = await selectAgentDesignPattern(options);
+
   const description = options.description ?? await input({
     message: "Describe your use case:",
     validate: (v) => v.trim() ? true : "Please enter a use case description",
   });
 
-  const folderName = deriveProjectName(description);
-  const targetDir = path.resolve(folderName);
+  const targetDir = process.cwd();
 
-  if (await fs.pathExists(targetDir)) {
-    console.log(chalk.yellow(`\n  Directory "${folderName}" already exists. New files will be added.`));
-  } else {
-    await fs.ensureDir(targetDir);
-    console.log(chalk.dim(`\n  Created ${folderName}/`));
-  }
-
-  await runGeneration(targetDir, description, "full", options, undefined, "greenfield");
+  await runGeneration(targetDir, description, "full", options, undefined, "greenfield", pattern);
 
   console.log();
   console.log(`  ${chalk.hex(ACCENT).bold("Get started")}`);
-  console.log(`    ${chalk.hex(ACCENT)("1.")} ${chalk.cyan(`cd ${folderName}`)}`);
-  console.log(`    ${chalk.hex(ACCENT)("2.")} Open Copilot Chat ${chalk.dim("⌘⇧I / Ctrl+Shift+I")}`);
+  console.log(`    ${chalk.hex(ACCENT)("1.")} Open Copilot Chat ${chalk.dim("⌘⇧I / Ctrl+Shift+I")}`);
   console.log();
 }
 
@@ -304,6 +320,35 @@ async function handleAnalyze(
     default: "auto",
   });
 
+  // ── Early exit: comprehensive customizations already present ────────
+  const existingCount =
+    workspace.existingAgents.length +
+    workspace.existingInstructions.length +
+    workspace.existingPrompts.length +
+    workspace.existingSkills.length;
+
+  if (strategy === "auto" && existingCount >= 3 && workspace.existingAgents.length >= 2) {
+    // The project already has substantial Copilot customizations — nothing useful to auto-generate
+    console.log(
+      chalk.green.bold("  ✓ ") +
+      chalk.white.bold("This project already has comprehensive Copilot customizations"),
+    );
+    console.log();
+    const summary: string[] = [];
+    if (workspace.existingAgents.length > 0) summary.push(`${workspace.existingAgents.length} agent(s)`);
+    if (workspace.existingInstructions.length > 0) summary.push(`${workspace.existingInstructions.length} instruction(s)`);
+    if (workspace.existingPrompts.length > 0) summary.push(`${workspace.existingPrompts.length} prompt(s)`);
+    if (workspace.existingSkills.length > 0) summary.push(`${workspace.existingSkills.length} skill(s)`);
+    if (workspace.existingHooks.length > 0) summary.push(`${workspace.existingHooks.length} hook(s)`);
+    if (workspace.existingWorkflows.length > 0) summary.push(`${workspace.existingWorkflows.length} workflow(s)`);
+    console.log(chalk.dim(`    Found: ${summary.join(", ")}`));
+    console.log();
+    console.log(chalk.dim("  Tip: use ") + chalk.cyan("forge init --mode analyze --strategy guided") + chalk.dim(" to add custom requirements on top of existing customizations."));
+    console.log(chalk.dim("       use ") + chalk.cyan("forge validate") + chalk.dim(" to check the health of your existing files."));
+    console.log();
+    return;
+  }
+
   let description: string;
   let generationMode: GenerationMode;
 
@@ -326,7 +371,7 @@ async function handleAnalyze(
     generationMode = "full";
   }
 
-  await runGeneration(targetDir, description, generationMode, options, workspace, "brownfield");
+  await runGeneration(targetDir, description, generationMode, options, workspace, "brownfield", options.agentDesignPattern ?? "auto");
   printNextSteps();
 }
 
@@ -439,6 +484,7 @@ async function runGeneration(
   options: InitOptions,
   workspace?: WorkspaceInfo,
   pipeline: "greenfield" | "brownfield" = "greenfield",
+  agentDesignPattern: AgentDesignPattern = "auto",
 ): Promise<void> {
   // Model selection
   const model = options.model ?? await selectModel();
@@ -474,12 +520,15 @@ async function runGeneration(
   detail("Pipeline", pipelineLabel);
   detail("Model", model);
   detail("Speed", speed === "turbo" ? "Turbo ⚡" : "Standard");
+  if (agentDesignPattern !== "auto") {
+    detail("Pattern", agentDesignPattern === "subagent" ? "Subagent (coordinator-worker)" : "Standalone (handoffs)");
+  }
   if (domains.length > 1) {
     detail("Domains", domains.map((d) => d.title).join(", "));
   }
   console.log();
 
-  const planPrompt = buildPlanningPrompt(generationMode, slug, title, description, domains, workspace);
+  const planPrompt = buildPlanningPrompt(generationMode, slug, title, description, domains, workspace, undefined, agentDesignPattern);
   const planOutput = await launchCopilotCli(tempDir, planPrompt, {
     model,
     agent: plannerAgent,
@@ -582,45 +631,59 @@ async function runGeneration(
     const pruLabel = totalPru > 0 ? `${totalPru} PRU` : `~${estimatedPru} PRU`;
 
     // Per-phase breakdown table
-    const boxWidth = 57;
+    // Use a row helper that pads the ENTIRE row to boxWidth, guaranteeing right-border alignment
+    const boxWidth = 64;
     const divider = "─".repeat(boxWidth);
     const bc = chalk.hex(DIM_BORDER);
+
+    /** Build a table row with right-border aligned to boxWidth */
+    const row = (content: string): string => {
+      const visual = stripAnsi(content).length;
+      const pad = Math.max(0, boxWidth - visual);
+      return bc("  │") + content + " ".repeat(pad) + bc("│");
+    };
+
     console.log(bc(`  ┌${divider}┐`));
-    console.log(bc("  │") + chalk.hex(ACCENT).bold("  Phase".padEnd(18) + "Duration".padEnd(12) + "PRU".padEnd(8) + "Tokens".padEnd(19)) + bc("│"));
+    console.log(row(
+      chalk.hex(ACCENT).bold("  Phase") + "         " +
+      chalk.hex(ACCENT).bold("Duration") + "    " +
+      chalk.hex(ACCENT).bold("PRU") + "     " +
+      chalk.hex(ACCENT).bold("Tokens"),
+    ));
     console.log(bc(`  ├${divider}┤`));
 
     // Planning row
     const planDurStr = planOutput.apiTimeMs > 0 ? formatDuration(planOutput.apiTimeMs) : formatDuration(planOutput.sessionTimeMs || 0);
-    const planPru = planOutput.premiumRequests > 0 ? chalk.white(String(planOutput.premiumRequests)) : chalk.dim("–");
-    const planTokens = formatTokens(planOutput.tokenBreakdown) || chalk.dim("–");
-    console.log(bc("  │") + `  ${vpad(chalk.white("Planning"), 16)}${vpad(chalk.cyan(planDurStr), 12)}${vpad(String(planPru), 8)}${vpad(String(planTokens), 19)}` + bc("│"));
+    const planPruStr = planOutput.premiumRequests > 0 ? String(planOutput.premiumRequests) : "–";
+    const planTokenStr = formatTokens(planOutput.tokenBreakdown) || "–";
+    console.log(row(`  ${chalk.white("Planning".padEnd(14))}${chalk.cyan(planDurStr.padEnd(12))}${chalk.white(planPruStr.padEnd(8))}${chalk.dim(planTokenStr)}`));
 
     if (speed === "turbo") {
       if (phaseOutputs.orchestrator) {
         const oOut = phaseOutputs.orchestrator;
-        const oDur = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
-        const oPru = oOut.premiumRequests > 0 ? chalk.white(String(oOut.premiumRequests)) : chalk.dim("–");
-        const oTokens = formatTokens(oOut.tokenBreakdown) || chalk.dim("–");
-        console.log(bc("  │") + `  ${vpad(chalk.hex("#FFD700")("Fleet ⚡"), 16)}${vpad(chalk.cyan(oDur), 12)}${vpad(String(oPru), 8)}${vpad(String(oTokens), 19)}` + bc("│"));
+        const oDurStr = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
+        const oPruStr = oOut.premiumRequests > 0 ? String(oOut.premiumRequests) : "–";
+        const oTokenStr = formatTokens(oOut.tokenBreakdown) || "–";
+        console.log(row(`  ${chalk.hex("#FFD700")("Fleet ⚡".padEnd(14))}${chalk.cyan(oDurStr.padEnd(12))}${chalk.white(oPruStr.padEnd(8))}${chalk.dim(oTokenStr)}`));
       }
     } else {
       if (phaseOutputs.orchestrator) {
         const oOut = phaseOutputs.orchestrator;
-        const oDur = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
-        const oPru = oOut.premiumRequests > 0 ? chalk.white(String(oOut.premiumRequests)) : chalk.dim("–");
-        const oTokens = formatTokens(oOut.tokenBreakdown) || chalk.dim("–");
-        console.log(bc("  │") + `  ${vpad(chalk.white("Generation"), 16)}${vpad(chalk.cyan(oDur), 12)}${vpad(String(oPru), 8)}${vpad(String(oTokens), 19)}` + bc("│"));
+        const oDurStr = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
+        const oPruStr = oOut.premiumRequests > 0 ? String(oOut.premiumRequests) : "–";
+        const oTokenStr = formatTokens(oOut.tokenBreakdown) || "–";
+        console.log(row(`  ${chalk.white("Generation".padEnd(14))}${chalk.cyan(oDurStr.padEnd(12))}${chalk.white(oPruStr.padEnd(8))}${chalk.dim(oTokenStr)}`));
       }
     }
 
     // Total row
     const totalDurStr = formatDuration(phase2Duration);
-    const totalTokenStr = formatTokens(totalOutput.tokenBreakdown) || chalk.dim("–");
+    const totalTokenStr = formatTokens(totalOutput.tokenBreakdown) || "–";
     console.log(bc(`  ├${divider}┤`));
-    console.log(bc("  │") + `  ${vpad(chalk.white.bold("Total"), 16)}${vpad(chalk.cyan.bold(totalDurStr), 12)}${vpad(chalk.hex("#FFD700").bold(pruLabel), 8)}${vpad(String(totalTokenStr), 19)}` + bc("│"));
-    console.log(bc(`  │${" ".repeat(boxWidth)}│`));
-    console.log(bc("  │") + `  ${vpad(`${chalk.dim("Files")} ${chalk.white.bold(String(installed.length))}`, 23)}${vpad(`${chalk.dim("Model")} ${chalk.white.bold(model)}`, 32)}` + bc("│"));
-    console.log(bc("  │") + `  ${vpad(`${chalk.dim("Speed")} ${chalk.white.bold(speed === "turbo" ? "Turbo (fleet)" : "Standard")}`, 55)}` + bc("│"));
+    console.log(row(`  ${chalk.white.bold("Total".padEnd(14))}${chalk.cyan.bold(totalDurStr.padEnd(12))}${chalk.hex("#FFD700").bold(pruLabel.padEnd(8))}${chalk.dim(totalTokenStr)}`));
+    console.log(row(""));
+    console.log(row(`  ${chalk.dim("Files")} ${chalk.white.bold(String(installed.length))}${" ".repeat(13)}${chalk.dim("Model")} ${chalk.white.bold(model)}`));
+    console.log(row(`  ${chalk.dim("Speed")} ${chalk.white.bold(speed === "turbo" ? "Turbo (fleet)" : "Standard")}`));
     console.log(bc(`  └${divider}┘`));
 
     printGeneratedFiles(plan.slug, installed);

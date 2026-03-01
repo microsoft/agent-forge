@@ -12,6 +12,7 @@ import type {
   Domain,
   GenerationMode,
   ArtifactType,
+  AgentDesignPattern,
   GenerationPlan,
   PlannedAgent,
   WorkspaceInfo,
@@ -83,7 +84,6 @@ YAML frontmatter properties (all agents MUST include these):
   - \`agent\` (invoke sub-agents — aliases: custom-agent, Task)
   - \`web\` (fetch URLs — aliases: WebSearch, WebFetch)
   - \`todo\` (task lists — aliases: TodoWrite)
-  - \`get_errors\` — check diagnostics
   - MCP server tools: \`github/*\`, \`playwright/*\`, or \`server-name/tool-name\`
   - Unrecognized tool names are silently ignored (cross-product safe)
 - \`user-invocable\`: boolean (default: true) — whether users can select this agent
@@ -96,6 +96,10 @@ YAML frontmatter properties (all agents MUST include these):
   - \`agent\`: target agent name
   - \`prompt\`: message sent when handing off
   - \`send\`: boolean (whether to send immediately)
+- \`agents\`: list of allowed subagent names (for orchestrator agents):
+  - Use \`'*'\` to allow all agents, \`[]\` to prevent any
+  - Only meaningful when \`agent\` tool is included in tools list
+- \`model\`: string or array — AI model for this agent (e.g., \`"Claude Sonnet 4.5 (copilot)"\` or prioritized array)
 
 Body content (Markdown below the frontmatter):
 - Opening: "You are the **Name** — a [role] that [purpose]."
@@ -116,16 +120,28 @@ Body: Grouped rules under ## headings with bullet points.`;
 const VSCODE_SKILL_SPEC = `## VSCode Skill Format Specification
 
 YAML frontmatter:
-- \`name\`: string (REQUIRED) — lowercase, hyphens for spaces, matches directory name
-- \`description\`: string (REQUIRED) — MUST include:
-  - "USE FOR:" followed by 5+ trigger phrases (comma-separated)
-  - "DO NOT USE FOR:" followed by 3+ exclusion phrases
-  This controls when Copilot automatically loads the skill.
-- \`license\`: string (optional) — license that applies to this skill
+- \`name\`: string (REQUIRED) — lowercase, hyphens only. MUST match parent directory name exactly.
+- \`description\`: string (REQUIRED, 1-1024 chars) — MUST include:
+  - "USE FOR:" followed by 5+ trigger phrases (comma-separated) — include synonyms, casual terms, abbreviations
+  - "DO NOT USE FOR:" followed by 3+ exclusion phrases — focus on near-miss topics
+  This is the PRIMARY mechanism for skill discovery. Write descriptions slightly "pushy" to prevent under-triggering.
+- \`argument-hint\`: string (optional) — hint shown in chat input when invoked as /slash command
+- \`user-invocable\`: boolean (default true) — show in / slash command menu
+- \`disable-model-invocation\`: boolean (default false) — prevent auto-loading
+- \`license\`: string (optional) — license for the skill
+- \`compatibility\`: string (optional, 1-500 chars) — environment requirements
 
-Skill locations: \`.github/skills/\` or \`.claude/skills/\` (project), \`~/.copilot/skills/\` (personal)
+Skill locations: \`.github/skills/\` (default), \`.agents/skills/\`, \`.claude/skills/\` (project), \`~/.copilot/skills/\` (personal)
 
-Body: ## Overview, architecture patterns, ## When to Use, ## When NOT to Use`;
+Progressive disclosure: frontmatter (always in context) → SKILL.md body (loaded when relevant) → references/scripts/assets (loaded only when referenced).
+
+Body structure by category:
+- SDK/Library: Core Concepts → Common Patterns (Input/Output) → API Reference → Pitfalls
+- Framework: Architecture → Project Structure → Conventions → Decision Tree → Pitfalls
+- Service/Infra: Overview → Configuration → Deployment Workflow → Troubleshooting table
+- Workflow: Overview → Step-by-Step → Decision Tree → Checklist → Examples
+
+Keep body <500 lines. Split large knowledge into references/ subdirectory.`;
 
 const VSCODE_PROMPT_SPEC = `## VSCode Prompt Format Specification
 
@@ -143,6 +159,7 @@ const REFERENCE_PLAN = `{
   "slug": "ecommerce",
   "title": "E-Commerce Platform",
   "description": "E-commerce platform with Next.js storefront and FastAPI product service",
+  "orchestrationPattern": "flat",
   "agents": [
     {
       "name": "nextjs",
@@ -208,6 +225,7 @@ export function buildPlanningPrompt(
   domains: Domain[] = [],
   workspace?: WorkspaceInfo,
   selectedTypes?: ArtifactType[],
+  agentDesignPattern: AgentDesignPattern = "auto",
 ): string {
   const effectiveDomains = domains.length > 0
     ? domains
@@ -289,6 +307,8 @@ export function buildPlanningPrompt(
       `- Extract test runner, ORM, and CSS framework → these go into techStack and responsibilities`,
       `- Read 2-3 actual source files → encode the real patterns you find into responsibilities`,
       `Plan agents that target actual components/layers found in the codebase.`,
+      ``,
+      `**CRITICAL**: When scanning .github/agents/, IGNORE any files with the \`forge-\` prefix (e.g., forge-brownfield-planner.agent.md, forge-agent-writer.agent.md). These are internal AGENT-FORGE pipeline agents — they are NOT project customizations.`,
       ``,
     );
   } else if (workspace) {
@@ -379,6 +399,65 @@ export function buildPlanningPrompt(
     `- More agents than distinct frameworks/layers in the description`,
     `- Skill descriptions missing \`USE FOR:\` and \`DO NOT USE FOR:\` phrases`,
     `- Role descriptions like "handles the frontend" — instead: "Builds React components with TypeScript and TailwindCSS"`,
+    agentDesignPattern !== "subagent" ? `- Orchestrator for ≤2 agents — use handoffs instead` : ``,
+    `- Orchestrator with \`edit\` or \`execute\` tools — orchestrators delegate everything`,
+    `- Subagent without orchestrator — every subagent must be listed in an orchestrator's \`agents\` array`,
+    ``,
+  );
+
+  // Agent design pattern override
+  if (agentDesignPattern === "subagent") {
+    sections.push(
+      `## ⚡ Agent Design Pattern Override: SUBAGENT (coordinator-worker)`,
+      ``,
+      `The user has explicitly requested the **subagent (coordinator-worker)** pattern.`,
+      `You MUST use \`orchestrationPattern: "coordinator-worker"\` regardless of agent count.`,
+      `Even with only 2 agents, create a coordinator orchestrator + 2 worker subagents (3 agents total).`,
+      ``,
+      `- Create one **coordinator** agent with \`agentRole: "orchestrator"\`, \`agents: [...]\`, tools: \`[read, search, agent, todo]\``,
+      `- Mark all other agents as **subagents** with \`agentRole: "subagent"\`, \`userInvocable: false\``,
+      `- The coordinator NEVER writes code — it decomposes, delegates, and validates`,
+      `- This pattern saves PRU by running one orchestrator session instead of multiple standalone agent sessions`,
+      ``,
+    );
+  } else if (agentDesignPattern === "standalone") {
+    sections.push(
+      `## ⚡ Agent Design Pattern Override: STANDALONE (flat with handoffs)`,
+      ``,
+      `The user has explicitly requested the **standalone (flat)** pattern.`,
+      `You MUST use \`orchestrationPattern: "flat"\` regardless of agent count or keywords.`,
+      `Do NOT create any orchestrator agent. All agents are peer-level with \`userInvocable: true\`.`,
+      ``,
+      `- All agents are standalone with \`agentRole: "standalone"\``,
+      `- Add \`handoffs\` between related agents so users can transition between them`,
+      `- Each agent works independently and is visible in the agent dropdown`,
+      ``,
+    );
+  }
+
+  // Orchestration pattern guidance
+  sections.push(
+    `## Orchestration Patterns`,
+    ``,
+    `When planning 3+ agents, decide the \`orchestrationPattern\`:`,
+    ``,
+    `| Pattern | When to Use | Structure |`,
+    `|---------|-------------|-----------|`,
+    `| \`flat\` (default) | 1-2 agents, simple projects | Peer agents with optional handoffs |`,
+    `| \`coordinator-worker\` | 3+ agents, "plan", "research", "workflow", "coordinate" | Orchestrator + specialized workers |`,
+    `| \`multi-perspective\` | 3+ agents, "review", "quality", "audit" | Orchestrator + parallel reviewers |`,
+    `| \`tdd\` | 3+ agents, "TDD", "test-driven" | TDD coordinator + red/green/refactor |`,
+    `| \`pipeline\` | 3+ agents, clear dependency chain | Pipeline orchestrator + sequential stages |`,
+    ``,
+    `When pattern ≠ \`flat\`, include these fields in each agent:`,
+    `- \`agentRole\`: \`"orchestrator"\` or \`"subagent"\` or \`"standalone"\``,
+    `- \`agents\`: list of subagent names (orchestrators only)`,
+    `- \`userInvocable\`: \`false\` for subagents (hidden from dropdown)`,
+    `- \`disableModelInvocation\`: \`true\` for orchestrators (user-only)`,
+    `- \`model\`: optional lighter model for cost-efficient subagents`,
+    ``,
+    `Orchestrator tools: \`[read, search, agent, todo]\` — NO \`edit\`/\`execute\`.`,
+    `Orchestrator responsibilities: decompose, delegate, validate, iterate.`,
     ``,
   );
 
@@ -458,29 +537,51 @@ export function buildOrchestrationPromptFromPlan(
 
   // Agent delegation
   if (plan.agents.length > 0) {
+    const isOrchestrated = plan.orchestrationPattern && plan.orchestrationPattern !== "flat";
+
     const agentDetails = plan.agents.map((a: PlannedAgent) => {
       const tech = a.techStack.length > 0 ? ` (${a.techStack.join(", ")})` : "";
       const resp = a.responsibilities.map((r: string) => `    - ${r}`).join("\n");
-      return [
+      const roleInfo = a.agentRole ? `    - Agent Role: ${a.agentRole}` : "";
+      const agentsInfo = a.agents && a.agents.length > 0 ? `    - Subagents: ${a.agents.join(", ")}` : "";
+      const invokableInfo = a.userInvocable === false ? `    - user-invocable: false (subagent only)` : "";
+      const disableInfo = a.disableModelInvocation === true ? `    - disable-model-invocation: true (user-invoked only)` : "";
+      const modelInfo = a.model ? `    - Model: ${Array.isArray(a.model) ? a.model.join(", ") : a.model}` : "";
+
+      const lines = [
         `  - **Agent file**: \`.github/agents/${a.name}.agent.md\``,
         `    - Title: ${a.title}`,
         `    - Role: ${a.role}${tech}`,
         `    - Category: ${a.category}`,
         `    - ApplyTo: ${a.applyToGlob}`,
+        roleInfo,
+        agentsInfo,
+        invokableInfo,
+        disableInfo,
+        modelInfo,
         `    - Responsibilities:`,
         resp,
-        `  - **Instruction file**: \`.github/instructions/${a.name}.instructions.md\``,
-        `    - ApplyTo: "${a.applyToGlob}"`,
-        `    - Description: "${a.instruction.description}"`,
-        `  - **Skill file**: \`.github/skills/${a.name}/SKILL.md\``,
-        `    - Description: "${a.skill.description}"`,
-      ].join("\n");
+      ];
+
+      // Orchestrators don't edit files — skip instruction and skill files for them
+      if (a.agentRole !== "orchestrator") {
+        lines.push(
+          `  - **Instruction file**: \`.github/instructions/${a.name}.instructions.md\``,
+          `    - ApplyTo: "${a.applyToGlob}"`,
+          `    - Description: "${a.instruction.description}"`,
+          `  - **Skill file**: \`.github/skills/${a.name}/SKILL.md\``,
+          `    - Description: "${a.skill.description}"`,
+        );
+      }
+
+      return lines.filter(Boolean).join("\n");
     }).join("\n\n");
 
     sections.push(
       `## Artifacts to Create (per-agent aligned architecture)`,
       ``,
       `Each agent gets its own instruction file (loaded via applyTo globs) and skill file (loaded on-demand via trigger phrases).`,
+      isOrchestrated ? `\n**Orchestration Pattern: ${plan.orchestrationPattern}** — agents use subagent delegation instead of flat handoffs.` : ``,
       ``,
       agentDetails,
       ``,
@@ -489,10 +590,24 @@ export function buildOrchestrationPromptFromPlan(
       `Create each artifact type following the format specs above.`,
       ``,
       `**Agent files** — Create ALL agent files listed above.`,
-      `  - Each MUST include: \`argument-hint\`, \`user-invocable: true\`, \`execute\` (or \`run_in_terminal\`) and \`get_errors\` in tools list.`,
-      plan.agents.length > 1 ? `  - Add \`handoffs\` between agents so users can transition between them.` : ``,
-      `**Instruction files** — Create ALL instruction files (one per agent, each with its own applyTo glob).`,
-      `**Skill files** — Create ALL skill files (one per agent). Each skill description MUST have ≥5 USE FOR and ≥3 DO NOT USE FOR trigger phrases.`,
+    );
+
+    if (isOrchestrated) {
+      sections.push(
+        `  - Orchestrator agents: include \`agents\` property listing subagent names, \`agent\` and \`todo\` tools, NO \`edit\`/\`execute\`. Body: cardinal rule (never implement), plan-first workflow (analyze → plan → delegate → integrate → report), planning protocol with shared contracts and task dependencies, delegation protocol, subagent roles.`,
+        `  - Subagent agents: include \`user-invocable: false\`. Body: focused expertise, structured output, autonomous operation. Add \`model\` if specified in plan.`,
+        `  - Do NOT add \`handoffs\` to orchestrated agents — they use subagent delegation instead.`,
+      );
+    } else {
+      sections.push(
+        `  - Each MUST include: \`argument-hint\`, \`user-invocable: true\`, \`execute\` (or \`run_in_terminal\`) in tools list.`,
+        plan.agents.length > 1 ? `  - Add \`handoffs\` between agents so users can transition between them.` : ``,
+      );
+    }
+
+    sections.push(
+      `**Instruction files** — Create instruction files for each **non-orchestrator** agent (each with its own applyTo glob). Do NOT create an instruction file for orchestrator agents — orchestrators delegate work and never edit files directly.`,
+      `**Skill files** — Create skill files for each **non-orchestrator** agent. Each skill description MUST have ≥5 USE FOR and ≥3 DO NOT USE FOR trigger phrases. Do NOT create a skill file for orchestrator agents.`,
       ``,
     );
   }
@@ -583,16 +698,19 @@ export function buildFleetOrchestrationPrompt(
 
   // Full plan overview so all subagents share consistent naming/references
   if (plan.agents.length > 0) {
+    const isOrchestrated = plan.orchestrationPattern && plan.orchestrationPattern !== "flat";
     const agentTable = plan.agents.map((a: PlannedAgent) => {
       const tech = a.techStack.length > 0 ? a.techStack.join(", ") : "general";
-      return `| ${a.name} | ${a.title} | ${a.role} | ${tech} | \`${a.applyToGlob}\` |`;
+      const role = a.agentRole ?? "standalone";
+      return `| ${a.name} | ${a.title} | ${a.role} | ${tech} | \`${a.applyToGlob}\` | ${role} |`;
     }).join("\n");
 
     sections.push(
       `## Plan Overview (all agents)`,
       ``,
-      `| Name | Title | Role | Tech Stack | ApplyTo |`,
-      `|------|-------|------|------------|---------|`,
+      isOrchestrated ? `**Orchestration Pattern: ${plan.orchestrationPattern}**\n` : ``,
+      `| Name | Title | Role | Tech Stack | ApplyTo | Agent Role |`,
+      `|------|-------|------|------------|---------|------------|`,
       agentTable,
       ``,
     );
@@ -635,6 +753,22 @@ export function buildFleetOrchestrationPrompt(
     for (const a of plan.agents) {
       const tech = a.techStack.length > 0 ? ` (${a.techStack.join(", ")})` : "";
       const resp = a.responsibilities.map((r: string) => `    - ${r}`).join("\n");
+      const roleInfo = a.agentRole ? `- Agent Role: ${a.agentRole}` : "";
+      const agentsInfo = a.agents && a.agents.length > 0 ? `- Subagents (agents property): ${a.agents.join(", ")}` : "";
+      const invokableInfo = a.userInvocable === false ? `- user-invocable: false (subagent — hidden from dropdown)` : "";
+      const disableInfo = a.disableModelInvocation === true ? `- disable-model-invocation: true (user-invoked only)` : "";
+      const modelInfo = a.model ? `- Model: ${Array.isArray(a.model) ? a.model.join(", ") : a.model}` : "";
+
+      const toolLine = a.agentRole === "orchestrator"
+        ? `- Tools: read, search, agent, todo (NO edit/execute — delegates everything)`
+        : a.agentRole === "subagent" && a.userInvocable === false
+          ? `- Tools: ${a.category === "general" && a.responsibilities.some((r: string) => /review|security|audit/i.test(r)) ? "read, search" : "read, edit, search, execute"}`
+          : `- Tools: read, edit, search, execute, todo`;
+
+      const handoffLine = plan.agents.length > 1 && a.agentRole !== "orchestrator" && a.agentRole !== "subagent"
+        ? `- Handoffs: add handoffs to other agents: ${plan.agents.filter((o) => o.name !== a.name).map((o) => o.name).join(", ")}`
+        : ``;
+
       sections.push(
         `### Agent: ${a.title}`,
         `- File: \`.github/agents/${a.name}.agent.md\``,
@@ -642,13 +776,16 @@ export function buildFleetOrchestrationPrompt(
         `- Role: "${a.role}"${tech}`,
         `- Category: ${a.category}`,
         `- ApplyTo: ${a.applyToGlob}`,
+        roleInfo,
+        agentsInfo,
+        invokableInfo,
+        disableInfo,
+        modelInfo,
         `- Responsibilities:`,
         resp,
-        `- Tools: read, edit, search, execute, get_errors, todo`,
-        `- MUST include: \`argument-hint\`, \`user-invocable: true\``,
-        plan.agents.length > 1
-          ? `- Handoffs: add handoffs to other agents: ${plan.agents.filter((o) => o.name !== a.name).map((o) => o.title).join(", ")}`
-          : ``,
+        toolLine,
+        a.agentRole !== "orchestrator" && a.agentRole !== "subagent" ? `- MUST include: \`argument-hint\`, \`user-invocable: true\`` : "",
+        handoffLine,
         ``,
       );
     }
@@ -942,10 +1079,10 @@ function buildAgentWriterPrompt(
       `- ApplyTo: ${a.applyToGlob}`,
       `- Responsibilities:`,
       resp,
-      `- Tools: read, edit, search, execute, get_errors, todo`,
+      `- Tools: read, edit, search, execute, todo`,
       `- MUST include: \`argument-hint\`, \`user-invocable: true\``,
       plan.agents.length > 1
-        ? `- Handoffs: add handoffs to other agents: ${plan.agents.filter((o) => o.name !== a.name).map((o) => o.title).join(", ")}`
+        ? `- Handoffs: add handoffs to other agents: ${plan.agents.filter((o) => o.name !== a.name).map((o) => o.name).join(", ")}`
         : ``,
       ``,
     );
@@ -1028,12 +1165,22 @@ function buildSkillWriterPrompt(
   }
 
   for (const a of plan.agents) {
+    const category = a.category || "general";
+    const categoryHint = {
+      frontend: "Framework/Platform — focus on architecture, project structure, conventions, decision trees",
+      backend: "Framework/Platform or SDK/Library — focus on API patterns, routing, data access, architecture",
+      ai: "SDK/Library — focus on core concepts, common patterns with input/output examples, API reference",
+      general: "Workflow/Process — focus on step-by-step procedures, decision trees, checklists",
+    }[category] || "Adapt body structure to the domain";
+
     sections.push(
       `### Skill: ${a.title}`,
       `- File path: \`.github/skills/${a.name}/SKILL.md\``,
-      `- Name: "${a.name}"`,
+      `- Name: "${a.name}" (MUST match directory name exactly)`,
+      `- Category: ${category} → ${categoryHint}`,
       `- Description: "${a.skill.description}"`,
-      `- MUST include ≥5 USE FOR and ≥3 DO NOT USE FOR trigger phrases in description.`,
+      `- Description checklist: 1-1024 chars, ≥5 USE FOR trigger phrases (synonyms, casual terms, abbreviations), ≥3 DO NOT USE FOR exclusion phrases (near-miss topics)`,
+      `- Body: <500 lines, use category-appropriate structure, split large knowledge into references/ subdirectory`,
       ``,
     );
   }
@@ -1041,8 +1188,11 @@ function buildSkillWriterPrompt(
   sections.push(
     `## Rules`,
     `- Create ALL skill files listed above.`,
+    `- The \`name\` field in frontmatter MUST match the parent directory name.`,
     `- Each skill description MUST have USE FOR and DO NOT USE FOR trigger phrases.`,
-    `- Content must be domain-specific, not generic.`,
+    `- Descriptions should be slightly "pushy" — mention use cases even when user doesn't explicitly name the skill.`,
+    `- Content must be domain-specific, not generic filler.`,
+    `- Body must be <500 lines. If domain knowledge is large, create references/ subdirectory with topic-specific .md files.`,
     `- Do NOT create agent, instruction, or prompt files.`,
     `- Stop after all skill files are written.`,
   );
@@ -1152,7 +1302,7 @@ ${filesSection}
 
 ## Rules
 - Fix ONLY the reported issues. Preserve all other content exactly as-is.
-- For unrecognized tool names: replace with the closest valid VS Code Copilot tool (read, edit, search, run_in_terminal, file_search, grep_search, semantic_search, list_dir, get_errors, read_file, fetch_webpage, memory, get_terminal_output, get_changed_files, test_failure, create_file, replace_string_in_file, multi_replace_string_in_file, read_notebook_cell_output, run_notebook_cell, edit_notebook_file, open_browser_page, runSubagent, search_subagent, run_vscode_command, vscode_renameSymbol, vscode_listCodeUsages, manage_todo_list, tool_search_tool_regex).
+- For unrecognized tool names: replace with the closest valid VS Code Copilot tool (read, edit, search, run_in_terminal, file_search, grep_search, semantic_search, list_dir, read_file, fetch_webpage, memory, get_terminal_output, get_changed_files, test_failure, create_file, replace_string_in_file, multi_replace_string_in_file, read_notebook_cell_output, run_notebook_cell, edit_notebook_file, open_browser_page, runSubagent, search_subagent, run_vscode_command, vscode_renameSymbol, vscode_listCodeUsages, manage_todo_list, tool_search_tool_regex).
 - For missing "USE FOR:" / "DO NOT USE FOR:" in skill descriptions: add appropriate trigger phrases based on the skill's content.
 - For placeholder text (TODO, PLACEHOLDER, etc.): replace with meaningful content based on context.
 - For empty/thin body content: expand with domain-specific content.

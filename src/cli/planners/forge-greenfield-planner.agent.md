@@ -48,7 +48,40 @@ Use this decision framework — do NOT guess:
 
 ---
 
-## Step 3: Name Each Agent
+## Step 3: Decide Orchestration Pattern
+
+After deciding agent count, determine how agents should relate to each other:
+
+| Condition | Pattern | Structure |
+|-----------|---------|----------|
+| 1-2 agents OR simple project | **`flat`** (default) | Peer agents with optional handoffs |
+| ≥3 agents + keywords: "review", "quality", "audit", "multi-perspective" | **`multi-perspective`** | Orchestrator + specialized reviewer subagents |
+| ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator + red/green/refactor subagents |
+| ≥3 agents + keywords: "plan", "research", "workflow", "coordinate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
+| ≥3 agents + clear dependency chain (plan → implement → review) | **`pipeline`** | Pipeline orchestrator + sequential stage subagents |
+| Otherwise | **`flat`** | Current behavior — all agents are peer-level |
+
+**When pattern ≠ `flat`:**
+
+1. **Mark one agent as orchestrator** (`agentRole: "orchestrator"`):
+   - Set `agents: ["worker-1", "worker-2", ...]` listing all subagent names
+   - Set `userInvocable: true`, `disableModelInvocation: true`
+   - Tools: `["read", "search", "agent", "todo"]` — NO `edit` or `execute` (pure delegation)
+   - Responsibilities focus on coordination: decomposing tasks, delegating to subagents, validating results, tracking progress
+
+2. **Mark worker agents as subagents** (`agentRole: "subagent"`):
+   - Set `userInvocable: false` (hidden from dropdown, only invoked by orchestrator)
+   - Set `disableModelInvocation: false` (allow orchestrator to invoke them)
+   - Optionally set `model` for cost-efficient subagents (e.g., reviewers can use lighter models)
+   - Tools appropriate for their role (e.g., implementers get `edit`/`execute`, reviewers get `read`/`search` only)
+
+3. **Orchestrator NEVER writes code** — it delegates ALL implementation to subagents
+
+**Anti-pattern**: Don't create an orchestrator for ≤2 agents UNLESS the planning prompt includes a "Agent Design Pattern Override: SUBAGENT" section. When the user explicitly requests the subagent pattern, always create a coordinator even with 2 workers.
+
+---
+
+## Step 4: Name Each Agent
 
 Priority order — use the FIRST match:
 
@@ -67,7 +100,7 @@ Priority order — use the FIRST match:
 
 ---
 
-## Step 4: Write Responsibilities
+## Step 5: Write Responsibilities
 
 Each agent needs 3-6 responsibilities. Every responsibility MUST follow this formula:
 
@@ -95,7 +128,7 @@ Each agent needs 3-6 responsibilities. Every responsibility MUST follow this for
 
 ---
 
-## Step 5: Set applyToGlob
+## Step 6: Set applyToGlob
 
 Each agent's glob MUST match ONLY the files it actually works with:
 
@@ -113,7 +146,7 @@ Each agent's glob MUST match ONLY the files it actually works with:
 
 ---
 
-## Step 6: Write Skill Descriptions
+## Step 7: Write Skill Descriptions
 
 Every skill description MUST include trigger phrases that control when Copilot loads the skill:
 
@@ -153,12 +186,14 @@ Write `forge-plan.json` in the workspace root:
   "slug": "<shared-slug-for-prompt>",
   "title": "<Human Readable Title>",
   "description": "<original use case description>",
+  "orchestrationPattern": "flat",
   "agents": [
     {
       "name": "<kebab-name>",
       "title": "<Human Title>",
       "role": "<one-line role description>",
       "category": "frontend|backend|ai|general",
+      "agentRole": "standalone",
       "techStack": ["react", "tailwindcss"],
       "responsibilities": [
         "Build product listing components with hooks-first architecture",
@@ -202,6 +237,7 @@ For the description: "E-commerce platform with Next.js storefront and FastAPI pr
   "slug": "ecommerce",
   "title": "E-Commerce Platform",
   "description": "E-commerce platform with Next.js storefront and FastAPI product service",
+  "orchestrationPattern": "flat",
   "agents": [
     {
       "name": "nextjs",
@@ -255,6 +291,119 @@ For the description: "E-commerce platform with Next.js storefront and FastAPI pr
 
 ---
 
+## Reference Plan: Coordinator-Worker Pattern
+
+For the description: "Feature development system with research, planning, implementation, and code review"
+
+```json
+{
+  "slug": "feature-dev",
+  "title": "Feature Development System",
+  "description": "Feature development system with research, planning, implementation, and code review",
+  "orchestrationPattern": "coordinator-worker",
+  "agents": [
+    {
+      "name": "feature-coordinator",
+      "title": "Feature Coordinator",
+      "role": "Orchestrates feature development by delegating research, implementation, and review to specialized subagents",
+      "category": "general",
+      "agentRole": "orchestrator",
+      "agents": ["researcher", "implementer", "reviewer"],
+      "userInvocable": true,
+      "disableModelInvocation": true,
+      "techStack": [],
+      "responsibilities": [
+        "Decompose feature requests into discrete research, implementation, and review tasks",
+        "Delegate research tasks to the researcher subagent with specific codebase questions",
+        "Delegate implementation tasks to the implementer subagent with detailed specifications",
+        "Delegate code review to the reviewer subagent with acceptance criteria and security focus",
+        "Validate subagent results and iterate until all acceptance criteria are met"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Orchestration workflow: decompose → delegate → validate → iterate. Never implement directly."
+      },
+      "skill": {
+        "description": "Feature development coordination and multi-agent orchestration. USE FOR: new feature, implement feature, build feature, feature request, coordinate development, plan implementation, delegate tasks. DO NOT USE FOR: direct code editing, running tests, file creation, debugging specific errors."
+      }
+    },
+    {
+      "name": "researcher",
+      "title": "Codebase Researcher",
+      "role": "Explores codebase patterns, gathers context, and returns structured research findings",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvocable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Search codebase for existing patterns, utilities, and conventions relevant to the task",
+        "Identify files and modules that will be affected by the planned changes",
+        "Map dependencies and relationships between components in the affected area",
+        "Return structured findings with file paths, line numbers, and pattern descriptions"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Read-only codebase exploration: search, read, analyze, report findings. Never modify files."
+      },
+      "skill": {
+        "description": "Codebase exploration, pattern discovery, and context gathering. USE FOR: research codebase, find patterns, analyze code, explore architecture, identify dependencies, map relationships. DO NOT USE FOR: writing code, editing files, running commands, implementing features."
+      }
+    },
+    {
+      "name": "implementer",
+      "title": "Code Implementer",
+      "role": "Writes production-quality code following project patterns and the provided implementation plan",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvocable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Implement code changes following the project's existing conventions and architecture",
+        "Write unit tests covering happy paths and at least one edge case per function",
+        "Run lint and type checks after each change to ensure code quality",
+        "Report back with files modified, tests written, and any issues encountered"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Implementation standards: follow existing patterns, write tests, run checks, report results."
+      },
+      "skill": {
+        "description": "Code implementation, testing, and quality verification. USE FOR: write code, implement feature, create tests, fix bugs, refactor code, add functionality. DO NOT USE FOR: codebase research, code review, architecture decisions, task coordination."
+      }
+    },
+    {
+      "name": "reviewer",
+      "title": "Code Reviewer",
+      "role": "Reviews code changes for security vulnerabilities, quality issues, and specification compliance",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvocable": false,
+      "model": ["Claude Sonnet 4.5 (copilot)", "Gemini 3 Flash (Preview) (copilot)"],
+      "techStack": [],
+      "responsibilities": [
+        "Check for OWASP Top 10 security vulnerabilities in changed code",
+        "Verify implementation matches the specification and acceptance criteria",
+        "Flag code quality issues: naming, duplication, missing error handling, complexity",
+        "Return structured review with PASS/FAIL verdict and specific file:line references"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Code review standards: security-first, verify against spec, provide actionable feedback with file:line references."
+      },
+      "skill": {
+        "description": "Security review, code quality analysis, and specification verification. USE FOR: review code, security audit, quality check, verify implementation, check vulnerabilities, code review. DO NOT USE FOR: writing code, implementing features, running builds, codebase research."
+      }
+    }
+  ],
+  "prompt": {
+    "slug": "feature-dev",
+    "description": "Develop features using coordinated research, implementation, and review workflow"
+  }
+}
+```
+
+---
+
 ## Anti-Patterns (NEVER produce these)
 
 Your plan is INVALID if it contains any of the following:
@@ -267,6 +416,9 @@ Your plan is INVALID if it contains any of the following:
 6. **Too many agents**: More agents than distinct frameworks/layers in the description
 7. **Missing skill triggers**: Skill description without `USE FOR:` and `DO NOT USE FOR:` phrases
 8. **Generic role descriptions**: "handles the frontend" — instead: "Builds React components with TypeScript and TailwindCSS"
+9. **Orchestrator for ≤2 agents**: Don't create an orchestrator when only 1-2 agents exist — use handoffs instead
+10. **Orchestrator that writes code**: Orchestrator agents must NEVER have `edit` or `execute` tools — they delegate everything
+11. **Subagent without orchestrator**: If any agent has `agentRole: "subagent"`, there MUST be an `agentRole: "orchestrator"` agent with that subagent in its `agents` array
 
 ---
 
@@ -304,15 +456,9 @@ When the description is short or doesn't mention specific technologies:
 
 ## Rules
 
-1. Follow Steps 1-6 in order — extract tech, decide count, name agents, write responsibilities, set globs, write skill descriptions
+1. Follow Steps 1-7 in order — extract tech, decide count, decide orchestration pattern, name agents, write responsibilities, set globs, write skill descriptions
 2. Write ONLY `forge-plan.json` — never create artifact files
 3. Plan 1-4 agents with distinct, non-overlapping responsibilities
-4. Do NOT ask clarifying questions — make the best decision from available info
-5. Stop immediately after writing the plan file
-
-## Rules
-
-1. Write ONLY `forge-plan.json` — never create artifact files
-2. Plan 1-4 agents with distinct, non-overlapping responsibilities
-3. Do NOT ask clarifying questions — make the best decision from available info
-4. Stop immediately after writing the plan file
+4. When orchestration pattern ≠ `flat`, include `agentRole`, `agents`, `userInvocable`, and `disableModelInvocation` fields
+5. Do NOT ask clarifying questions — make the best decision from available info
+6. Stop immediately after writing the plan file

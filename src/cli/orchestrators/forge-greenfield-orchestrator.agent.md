@@ -68,18 +68,32 @@ tools:
   - edit
   - search
   - execute
-  - get_errors
+agents:                                 # Include for orchestrator agents only
+  - "subagent-1"                        # List of allowed subagent names
+  - "subagent-2"
+model: "Claude Sonnet 4.5 (copilot)"   # Optional: single model or array for priority
 user-invocable: true
 disable-model-invocation: false
-handoffs:                               # Include for multi-agent setups
+handoffs:                               # Include for flat multi-agent setups (not orchestrators)
   - label: "Hand off to Backend"
-    agent: "express"
+    agent: "express"                    # Use the target agent identifier (kebab-case name), not display title
     prompt: "Continue working on the backend for this task."
     send: false
 ---
 ```
 
-Body: role intro, 4+ responsibilities, 4+ technical standards, process steps.
+**Agent Role Patterns:**
+
+| Agent Role | `user-invocable` | `disable-model-invocation` | `agents` | Tools |
+|-----------|-------------------|---------------------------|----------|-------|
+| **Standalone** (default) | `true` | `false` | _(omit)_ | `read`, `edit`, `search`, `execute` |
+| **Orchestrator** | `true` | `true` | `['worker-1', 'worker-2']` | `read`, `search`, `agent`, `todo` (NO `edit`/`execute`) |
+| **Subagent / Worker** | `false` | `false` | _(omit)_ | Role-appropriate (implementer: full, reviewer: read-only) |
+
+Body:
+- **Standalone**: role intro, 4+ responsibilities, 4+ technical standards, process steps
+- **Orchestrator**: cardinal rule (never implement), workflow (decompose → delegate → validate), delegation protocol, subagent roles
+- **Subagent**: focused expertise, structured workflow, operating rules (autonomous, no user interaction)
 
 ### Instruction files (`.github/instructions/{name}.instructions.md`)
 

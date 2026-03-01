@@ -45,6 +45,17 @@ export type HookEvent =
   | "subagentStop"
   | "agentStop";
 
+/** Role of an agent in an orchestration hierarchy */
+export type AgentRole = "standalone" | "orchestrator" | "subagent";
+
+/** Orchestration pattern for multi-agent systems */
+export type OrchestrationPattern =
+  | "flat"
+  | "coordinator-worker"
+  | "multi-perspective"
+  | "tdd"
+  | "pipeline";
+
 /** Agentic Workflow pattern types */
 export type AgenticWorkflowPattern =
   | "ChatOps"
@@ -145,6 +156,9 @@ export type InitMode = "create" | "analyze" | "templates";
 /** Analyze strategy — how to proceed after workspace scan */
 export type AnalyzeStrategy = "auto" | "guided";
 
+/** Agent design pattern — how agents relate to each other */
+export type AgentDesignPattern = "auto" | "standalone" | "subagent";
+
 /** Options for the init command */
 export interface InitOptions {
   force: boolean;
@@ -158,6 +172,8 @@ export interface InitOptions {
   speed?: SpeedStrategy;
   /** Skip the prerequisite check at the start of `forge init` */
   skipCheck?: boolean;
+  /** Agent design pattern: "auto" (AI decides), "standalone" (flat with handoffs), "subagent" (coordinator-worker) */
+  agentDesignPattern?: AgentDesignPattern;
 }
 
 /** Generation speed strategy */
@@ -216,6 +232,16 @@ export interface PlannedAgent {
     prompt: string;
     send?: boolean;
   }>;
+  /** Role of this agent in an orchestration hierarchy (default: "standalone") */
+  agentRole?: AgentRole;
+  /** List of allowed subagent names (only for orchestrator role) */
+  agents?: string[];
+  /** Whether the agent appears in the agents dropdown (default: true, set false for subagent-only) */
+  userInvocable?: boolean;
+  /** Whether to prevent auto-invocation as a subagent (default: false) */
+  disableModelInvocation?: boolean;
+  /** Optional model or prioritized model list for this agent */
+  model?: string | string[];
 }
 
 /** Structured generation plan produced by the forge-planner agent */
@@ -226,6 +252,8 @@ export interface GenerationPlan {
   title: string;
   /** Original use case description */
   description: string;
+  /** Orchestration pattern for how agents relate (default: "flat") */
+  orchestrationPattern?: OrchestrationPattern;
   /** Planned agents — each with its own aligned instruction + skill */
   agents: PlannedAgent[];
   /** Shared prompt metadata (one prompt routes to all agents) */

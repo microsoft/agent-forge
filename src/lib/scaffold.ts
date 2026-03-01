@@ -448,7 +448,11 @@ export async function readPlanFile(tempDir: string): Promise<GenerationPlan> {
     throw new Error("forge-plan.json missing required field: description");
   }
   if (!Array.isArray(plan.agents) || plan.agents.length === 0) {
-    throw new Error("forge-plan.json must include at least one agent");
+    throw new Error(
+      "forge-plan.json must include at least one agent. " +
+      "The planner did not generate any agents — this usually means the project already has comprehensive customizations. " +
+      "Try: forge init --mode analyze --strategy guided",
+    );
   }
 
   for (const agent of plan.agents) {
