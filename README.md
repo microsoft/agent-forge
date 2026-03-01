@@ -48,12 +48,40 @@ Run `forge check` to verify everything in one step.
 ## Quick Start
 
 ```bash
-npx @agent-forge-copilot/cli init
+npm install -g @agent-forge-copilot/cli
 ```
 
-The CLI walks you through everything interactively — choose to create from a description, analyze an existing project, or install pre-built templates.
+> Or run without installing: `npx @agent-forge-copilot/cli init`
 
-> **Global install:** `npm install -g @agent-forge-copilot/cli`, then use `forge` directly.
+### 🟢 Create — Start from a Description
+
+Describe what you're building. The AI plans and generates everything from scratch.
+
+```bash
+forge init --mode create
+```
+
+You'll be prompted for a description interactively — or pass it directly:
+
+```bash
+forge init --mode create --description "Next.js e-commerce app with Stripe payments"
+```
+
+### 🔵 Analyze — Scan Your Existing Project
+
+Already have code? The tool scans your repo and generates Copilot configs that match your real stack.
+
+```bash
+forge init --mode analyze
+```
+
+### 📦 Templates — Install Pre-Built Configs
+
+Skip AI entirely. Pick from ready-made templates:
+
+```bash
+forge init --mode templates
+```
 
 ### What gets created
 
@@ -69,6 +97,88 @@ The CLI walks you through everything interactively — choose to create from a d
 .vscode/
 └── mcp.json               # External tool servers (GitHub, Playwright, etc.)
 ```
+
+---
+
+## Example Prompts
+
+The description you provide drives the entire generation. Here are examples from simple to detailed.
+
+### 🟢 Create Mode — Describe Your App
+
+```bash
+forge init --mode create
+```
+
+You'll be prompted: *"Describe your project"*. The quality of your description affects the output:
+
+**Simple** — works, but generates generic config:
+```
+Todo app
+```
+
+**Better** — detects 2 tech layers, creates 2 specialized agents:
+```
+Todo app with React and Express
+```
+
+**Best** — full stack detection, tailored agents + instructions + skills for each layer:
+```
+Todo app with React frontend using TailwindCSS, Express REST API
+with Prisma ORM and PostgreSQL, JWT auth, and Docker deployment
+```
+
+**More examples you can try:**
+
+```
+E-commerce marketplace with Next.js, Stripe checkout, and Supabase
+```
+
+```
+RAG chatbot using LangChain, FastAPI, and Pinecone vector store
+```
+
+```
+REST API for fitness tracking with NestJS, Prisma, and Redis caching
+```
+
+```
+Event-driven microservices with Go, gRPC, Kafka, and Kubernetes
+```
+
+```
+Node.js CLI that converts Markdown to PDF with custom templates
+```
+
+#### Writing Better Descriptions
+
+| Tip | Example |
+|-----|---------|
+| Name your frameworks | `Next.js` not `React framework` |
+| Mention your database | `PostgreSQL`, `MongoDB`, `Redis` |
+| Include infrastructure | `Docker`, `Kubernetes`, `AWS` |
+| Add business context | `e-commerce`, `healthcare`, `fintech` |
+| Specify patterns | `TDD`, `microservices`, `event-driven` |
+
+> The more specific your description, the more tailored the output. Business context like `"e-commerce"` or `"healthcare"` triggers domain-specific agent patterns.
+
+### 🔵 Analyze Mode — Scan Your Codebase
+
+```bash
+forge init --mode analyze
+```
+
+No description needed — the tool scans your codebase automatically. Just choose a strategy:
+
+| Strategy | Command | What it does |
+|----------|---------|-------------|
+| **Auto** | `forge init --mode analyze --strategy auto` | Scans your repo and generates configs automatically — no questions asked |
+| **Guided** | `forge init --mode analyze --strategy guided` | Scans your repo, then asks what you'd like to add on top |
+
+The analyzer detects:
+- `package.json`, `requirements.txt`, `go.mod` → your tech stack
+- `src/` structure → your project layout
+- Existing `.github/` files → avoids duplicating what you already have
 
 ---
 
@@ -254,45 +364,6 @@ forge init / generate
                                         ▼
                                   Install to .github/
 ```
-
----
-
-## Deployment & Release
-
-Use this flow to publish a new npm package version and create a matching GitHub release tag.
-
-1. Bump package version.
-
-```bash
-npm version patch
-```
-
-2. Build and verify before publishing.
-
-```bash
-npm run lint
-npm run build
-npm publish --access public
-```
-
-3. Push commit and tag.
-
-```bash
-git push origin main --follow-tags
-```
-
-4. Create the GitHub release for the same tag.
-
-```bash
-gh release create v$(node -p "require('./package.json').version") --generate-notes
-```
-
-Release checklist:
-
-- Release tag format: `v<package-version>` (for example, `v0.1.8`)
-- npm package: `@agent-forge-copilot/cli`
-- Package page: `https://www.npmjs.com/package/@agent-forge-copilot/cli`
-- Repository: `https://github.com/microsoft/agent-forge`
 
 ---
 
