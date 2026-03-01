@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/microsoft/agent-forge">
-    <img src="assets/Screenshot%202569-02-28%20at%2001.18.44.png" alt="AGENT-FORGE" width="800"/>
+    <img src="assets/Screenshot 2569-03-02 at 00.25.20.png" alt="AGENT-FORGE" width="800"/>
   </a>
 </p>
 
