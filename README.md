@@ -33,7 +33,7 @@ AGENT-FORGE is a Context Engineering Toolkit that generates GitHub Copilot custo
 
 - **Node.js 18+**
 - **VS Code** (or VS Code Insiders) with the GitHub Copilot extension
-- **[GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line)** — powers the generation pipeline
+- **[GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli)** — powers the generation pipeline
 
 **Optional:**
 
