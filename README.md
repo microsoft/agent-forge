@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/jiratouchmhp/agent-forge">
+  <a href="https://github.com/microsoft/agent-forge">
     <img src="assets/Screenshot%202569-02-28%20at%2001.18.44.png" alt="AGENT-FORGE" width="800"/>
   </a>
 </p>
@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@agent-forge-copilot/cli"><img src="https://img.shields.io/npm/v/@agent-forge-copilot/cli?color=orange" alt="npm version"/></a>
-  <a href="https://github.com/jiratouchmhp/agent-forge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/jiratouchmhp/agent-forge" alt="license"/></a>
+  <a href="https://github.com/microsoft/agent-forge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/microsoft/agent-forge" alt="license"/></a>
 </p>
 
 ---
@@ -257,10 +257,49 @@ forge init / generate
 
 ---
 
+## Deployment & Release
+
+Use this flow to publish a new npm package version and create a matching GitHub release tag.
+
+1. Bump package version.
+
+```bash
+npm version patch
+```
+
+2. Build and verify before publishing.
+
+```bash
+npm run lint
+npm run build
+npm publish --access public
+```
+
+3. Push commit and tag.
+
+```bash
+git push origin main --follow-tags
+```
+
+4. Create the GitHub release for the same tag.
+
+```bash
+gh release create v$(node -p "require('./package.json').version") --generate-notes
+```
+
+Release checklist:
+
+- Release tag format: `v<package-version>` (for example, `v0.1.8`)
+- npm package: `@agent-forge-copilot/cli`
+- Package page: `https://www.npmjs.com/package/@agent-forge-copilot/cli`
+- Repository: `https://github.com/microsoft/agent-forge`
+
+---
+
 ## Contributing
 
 ```bash
-git clone https://github.com/jiratouchmhp/agent-forge.git
+git clone https://github.com/microsoft/agent-forge.git
 cd agent-forge
 npm install
 npm run build

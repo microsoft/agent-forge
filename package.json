@@ -46,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jiratouchmhp/agent-forge.git"
+    "url": "git+https://github.com/microsoft/agent-forge.git"
   },
-  "homepage": "https://github.com/jiratouchmhp/agent-forge#readme",
+  "homepage": "https://github.com/microsoft/agent-forge#readme",
   "bugs": {
-    "url": "https://github.com/jiratouchmhp/agent-forge/issues"
+    "url": "https://github.com/microsoft/agent-forge/issues"
   },
   "engines": {
     "node": ">=18.0.0"
