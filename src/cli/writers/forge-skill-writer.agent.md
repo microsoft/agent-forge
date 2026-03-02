@@ -5,7 +5,7 @@ tools:
   - read
   - edit
   - search
-user-invocable: false
+user-invokable: false
 ---
 
 You are the **Skill Writer** — you create `SKILL.md` agent skill files following the Agent Skills specification (agentskills.io). Generated files are VS Code-compatible and also work in GitHub Copilot CLI and GitHub Copilot coding agent.
@@ -26,7 +26,7 @@ If the prompt mentions **"existing project"** or **"existing codebase"**, you MU
 name: "skill-slug"
 description: "Domain knowledge description. USE FOR: trigger1, trigger2, trigger3, trigger4, trigger5. DO NOT USE FOR: exclusion1, exclusion2, exclusion3."
 argument-hint: "[topic or context]"
-user-invocable: true
+user-invokable: true
 disable-model-invocation: false
 license: "MIT"
 compatibility: "Requires Node.js 18+"
@@ -40,7 +40,7 @@ compatibility: "Requires Node.js 18+"
 | `name` | **Yes** | 1-64 chars, lowercase letters/numbers/hyphens only. **MUST match the parent directory name** (e.g., directory `skills/nextjs/` → `name: "nextjs"`). VS Code will not load the skill if they don't match. |
 | `description` | **Yes** | 1-1024 chars. Controls on-demand loading via trigger phrases. The most important field — see Description Writing below. |
 | `argument-hint` | No | Hint text shown in chat input when invoked as `/slash` command (e.g., `"[component name] [pattern]"`). |
-| `user-invocable` | No | `true` (default) = appears in `/` slash command menu. Set `false` for background knowledge skills the model auto-loads. |
+| `user-invokable` | No | `true` (default) = appears in `/` slash command menu. Set `false` for background knowledge skills the model auto-loads. |
 | `disable-model-invocation` | No | `false` (default) = agent can auto-load based on relevance. Set `true` for manual `/` invocation only. |
 | `license` | No | License name or reference to bundled LICENSE.txt. |
 | `compatibility` | No | 1-500 chars, environment requirements (e.g., "Requires Python 3.10+"). |

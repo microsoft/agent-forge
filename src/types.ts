@@ -230,7 +230,7 @@ export interface PlannedAgent {
   /** List of allowed subagent names (only for orchestrator role) */
   agents?: string[];
   /** Whether the agent appears in the agents dropdown (default: true, set false for subagent-only) */
-  userInvocable?: boolean;
+  userInvokable?: boolean;
   /** Whether to prevent auto-invocation as a subagent (default: false) */
   disableModelInvocation?: boolean;
   /** Optional model or prioritized model list for this agent */

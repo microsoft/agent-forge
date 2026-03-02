@@ -18,6 +18,7 @@ import type {
   WorkspaceInfo,
 } from "../types.js";
 import { mergeGlobs } from "./domain-registry.js";
+import { toVSCodeModelName } from "./copilot-cli.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,7 +87,7 @@ YAML frontmatter properties (all agents MUST include these):
   - \`todo\` (task lists — aliases: TodoWrite)
   - MCP server tools: \`github/*\`, \`playwright/*\`, or \`server-name/tool-name\`
   - Unrecognized tool names are silently ignored (cross-product safe)
-- \`user-invocable\`: boolean (default: true) — whether users can select this agent
+- \`user-invokable\`: boolean (default: true) — whether users can select this agent
 - \`disable-model-invocation\`: boolean (default: false) — prevent auto-delegation
 - \`argument-hint\`: string — shown to users as placeholder text
 - \`target\`: string — optional, "vscode" or "github-copilot" (defaults to both)
@@ -126,7 +127,7 @@ YAML frontmatter:
   - "DO NOT USE FOR:" followed by 3+ exclusion phrases — focus on near-miss topics
   This is the PRIMARY mechanism for skill discovery. Write descriptions slightly "pushy" to prevent under-triggering.
 - \`argument-hint\`: string (optional) — hint shown in chat input when invoked as /slash command
-- \`user-invocable\`: boolean (default true) — show in / slash command menu
+- \`user-invokable\`: boolean (default true) — show in / slash command menu
 - \`disable-model-invocation\`: boolean (default false) — prevent auto-loading
 - \`license\`: string (optional) — license for the skill
 - \`compatibility\`: string (optional, 1-500 chars) — environment requirements
@@ -415,7 +416,7 @@ export function buildPlanningPrompt(
       `Even with only 2 agents, create a coordinator orchestrator + 2 worker subagents (3 agents total).`,
       ``,
       `- Create one **coordinator** agent with \`agentRole: "orchestrator"\`, \`agents: [...]\`, tools: \`[read, search, agent, todo]\``,
-      `- Mark all other agents as **subagents** with \`agentRole: "subagent"\`, \`userInvocable: false\``,
+      `- Mark all other agents as **subagents** with \`agentRole: "subagent"\`, \`userInvokable: false\``,
       `- The coordinator NEVER writes code — it decomposes, delegates, and validates`,
       `- This pattern saves PRU by running one orchestrator session instead of multiple standalone agent sessions`,
       ``,
@@ -426,7 +427,7 @@ export function buildPlanningPrompt(
       ``,
       `The user has explicitly requested the **standalone (flat)** pattern.`,
       `You MUST use \`orchestrationPattern: "flat"\` regardless of agent count or keywords.`,
-      `Do NOT create any orchestrator agent. All agents are peer-level with \`userInvocable: true\`.`,
+      `Do NOT create any orchestrator agent. All agents are peer-level with \`userInvokable: true\`.`,
       ``,
       `- All agents are standalone with \`agentRole: "standalone"\``,
       `- Add \`handoffs\` between related agents so users can transition between them`,
@@ -456,7 +457,7 @@ export function buildPlanningPrompt(
     `When pattern ≠ \`flat\`, include these fields in each agent:`,
     `- \`agentRole\`: \`"orchestrator"\` or \`"subagent"\` or \`"standalone"\``,
     `- \`agents\`: list of subagent names (orchestrators only)`,
-    `- \`userInvocable\`: \`false\` for subagents (hidden from dropdown)`,
+    `- \`userInvokable\`: \`false\` for subagents (hidden from dropdown)`,
     `- \`disableModelInvocation\`: \`true\` for orchestrators (user-only)`,
     `- \`model\`: optional lighter model for cost-efficient subagents`,
     ``,
@@ -496,6 +497,8 @@ export function buildFleetOrchestrationPrompt(
 ): string {
   const refs = loadReferenceExamples();
   const sections: string[] = [];
+  // Convert CLI model ID to VS Code display name for generated agent frontmatter
+  const vsCodeModel = selectedModel ? toVSCodeModelName(selectedModel) : undefined;
 
   // ── Shared Plan Overview (visible to orchestrator + all subagents) ──
   sections.push(
@@ -510,9 +513,9 @@ export function buildFleetOrchestrationPrompt(
     `Task 5 (Global Instructions) must run **last**, after all other tasks complete.`,
     `Do NOT wait for one task to finish before starting the next (except Task 5).`,
     ``,
-    ...(selectedModel ? [
+    ...(vsCodeModel ? [
       `## Model`,
-      `All subagents MUST use **${selectedModel}**. When delegating each task, specify: "Use ${selectedModel}".`,
+      `All subagents MUST use **${vsCodeModel}**. When delegating each task, specify: "Use ${vsCodeModel}".`,
       `By default subagents use a low-cost model — you MUST explicitly set the model to override this.`,
       ``,
     ] : []),
@@ -562,7 +565,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task 1: Create Agent Files (parallel — no dependencies)`,
-      `Use @forge-agent-writer to create all agent files.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-agent-writer to create all agent files.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       ``,
       VSCODE_AGENT_SPEC,
       ``,
@@ -578,18 +581,20 @@ export function buildFleetOrchestrationPrompt(
       );
     }
 
+    const agentTitleMap = new Map(plan.agents.map((x) => [x.name, x.title]));
+
     for (const a of plan.agents) {
       const tech = a.techStack.length > 0 ? ` (${a.techStack.join(", ")})` : "";
       const resp = a.responsibilities.map((r: string) => `    - ${r}`).join("\n");
       const roleInfo = a.agentRole ? `- Agent Role: ${a.agentRole}` : "";
-      const agentsInfo = a.agents && a.agents.length > 0 ? `- Subagents (agents property): ${a.agents.join(", ")}` : "";
-      const invokableInfo = a.userInvocable === false ? `- user-invocable: false (subagent — hidden from dropdown)` : "";
+      const agentsInfo = a.agents && a.agents.length > 0 ? `- Subagents (agents property — use these EXACT values in the \`agents:\` array): ${a.agents.map((slug: string) => `"${agentTitleMap.get(slug) || slug}"`).join(", ")}` : "";
+      const invokableInfo = a.userInvokable === false ? `- user-invokable: false (subagent — hidden from dropdown)` : "";
       const disableInfo = a.disableModelInvocation === true ? `- disable-model-invocation: true (user-invoked only)` : "";
       const modelInfo = a.model ? `- Model: ${Array.isArray(a.model) ? a.model.join(", ") : a.model}` : "";
 
       const toolLine = a.agentRole === "orchestrator"
         ? `- Tools: read, search, agent, todo (NO edit/execute — delegates everything)`
-        : a.agentRole === "subagent" && a.userInvocable === false
+        : a.agentRole === "subagent" && a.userInvokable === false
           ? `- Tools: ${a.category === "general" && a.responsibilities.some((r: string) => /review|security|audit/i.test(r)) ? "read, search" : "read, edit, search, execute"}`
           : `- Tools: read, edit, search, execute, todo`;
 
@@ -613,7 +618,7 @@ export function buildFleetOrchestrationPrompt(
         `- Responsibilities:`,
         resp,
         toolLine,
-        a.agentRole !== "orchestrator" && a.agentRole !== "subagent" ? `- MUST include: \`argument-hint\`, \`user-invocable: true\`` : "",
+        a.agentRole !== "orchestrator" && a.agentRole !== "subagent" ? `- MUST include: \`argument-hint\`, \`user-invokable: true\`` : "",
         handoffLine,
         ``,
       );
@@ -623,7 +628,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task 2: Create Instruction Files (parallel — no dependencies)`,
-      `Use @forge-instruction-writer to create instruction files for each **non-orchestrator** agent.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-instruction-writer to create instruction files for each **non-orchestrator** agent.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       `Do NOT create instruction files for orchestrator agents — orchestrators delegate work and never edit files directly.`,
       ``,
       VSCODE_INSTRUCTION_SPEC,
@@ -656,7 +661,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task 3: Create Skill Files (parallel — no dependencies)`,
-      `Use @forge-skill-writer to create skill files for each **non-orchestrator** agent.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-skill-writer to create skill files for each **non-orchestrator** agent.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       `Do NOT create skill files for orchestrator agents — orchestrators coordinate work and have no domain expertise.`,
       ``,
       VSCODE_SKILL_SPEC,
@@ -691,7 +696,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task 4: Create Prompt File (parallel — no dependencies)`,
-      `Use @forge-prompt-writer to create the prompt file.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-prompt-writer to create the prompt file.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       ``,
       VSCODE_PROMPT_SPEC,
       ``,
@@ -745,7 +750,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task ${taskNum}: Create Hook Configuration (parallel — no dependencies)`,
-      `Use @forge-hook-writer to create hook config and companion scripts.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-hook-writer to create hook config and companion scripts.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       ``,
       `- File: \`.github/hooks/${plan.hooks.slug}.json\``,
       `- Events: ${plan.hooks.events.join(", ")}`,
@@ -759,7 +764,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task ${taskNum}: Create MCP Configuration (parallel — no dependencies)`,
-      `Use @forge-mcp-writer to create MCP server config.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-mcp-writer to create MCP server config.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       ``,
       `- File: \`.vscode/mcp.json\``,
       `- Servers: ${plan.mcp.servers.join(", ")}`,
@@ -773,7 +778,7 @@ export function buildFleetOrchestrationPrompt(
     sections.push(
       `---`,
       `## Task ${taskNum}: Create Agentic Workflow (parallel — no dependencies)`,
-      `Use @forge-workflow-writer to create the workflow file.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Use @forge-workflow-writer to create the workflow file.${vsCodeModel ? ` Use ${vsCodeModel}.` : ``}`,
       ``,
       `- File: \`.github/workflows/${plan.workflow.slug}.md\``,
       `- Trigger: ${plan.workflow.trigger}`,
@@ -916,7 +921,7 @@ function buildAgentWriterPrompt(
       `- Responsibilities:`,
       resp,
       `- Tools: read, edit, search, execute, todo`,
-      `- MUST include: \`argument-hint\`, \`user-invocable: true\``,
+      `- MUST include: \`argument-hint\`, \`user-invokable: true\``,
       plan.agents.length > 1
         ? `- Handoffs: add handoffs to these agents. The \`agent:\` value MUST be the target agent's \`name\` field value (NOT the filename slug):\n${plan.agents.filter((o) => o.name !== a.name).map((o) => `    - agent: "${o.title}" ← use this EXACT string`).join("\n")}`
         : ``,
@@ -1142,8 +1147,8 @@ ${filesSection}
 - For missing "USE FOR:" / "DO NOT USE FOR:" in skill descriptions: add appropriate trigger phrases based on the skill's content.
 - For placeholder text (TODO, PLACEHOLDER, etc.): replace with meaningful content based on context.
 - For empty/thin body content: expand with domain-specific content.
-- For user-invocable as string: convert to boolean.
-- For deprecated "infer" field: remove and set user-invocable + disable-model-invocation accordingly.
+- For user-invokable as string: convert to boolean.
+- For deprecated "infer" field: remove and set user-invokable + disable-model-invocation accordingly.
 - For missing applyTo: infer from the instruction file name and content.
 - Keep YAML frontmatter valid. Preserve the --- delimiters.
 

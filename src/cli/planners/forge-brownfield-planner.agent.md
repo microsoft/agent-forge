@@ -5,7 +5,7 @@ tools:
   - read
   - edit
   - search
-user-invocable: false
+user-invokable: false
 disable-model-invocation: true
 ---
 
@@ -143,12 +143,12 @@ After deciding agent count, decide how agents relate:
 
 1. **Mark one agent as orchestrator** (`agentRole: "orchestrator"`):
    - Set `agents: ["worker-1", "worker-2", ...]` listing all subagent names
-   - Set `userInvocable: true`, `disableModelInvocation: true`
+   - Set `userInvokable: true`, `disableModelInvocation: true`
    - Tools: `["read", "search", "agent", "todo"]` — NO `edit` or `execute` (pure delegation)
    - Responsibilities: coordination, decomposition, delegation, validation
 
 2. **Mark worker agents as subagents** (`agentRole: "subagent"`):
-   - Set `userInvocable: false` (hidden from dropdown, invoked by orchestrator)
+   - Set `userInvokable: false` (hidden from dropdown, invoked by orchestrator)
    - Set `disableModelInvocation: false` (allow orchestrator to invoke)
    - Optionally set `model` for cost-efficient subagents
    - Tools appropriate for their role
@@ -339,7 +339,7 @@ Before writing `forge-plan.json`, verify ALL of these:
 1. SCAN the codebase BEFORE planning — complete ALL 7 scanning steps
 2. Write ONLY `forge-plan.json` — never create artifact files
 3. Plan 1-4 agents matching ACTUAL project layers found in code
-4. When orchestration pattern ≠ `flat`, include `agentRole`, `agents`, `userInvocable`, and `disableModelInvocation` fields
+4. When orchestration pattern ≠ `flat`, include `agentRole`, `agents`, `userInvokable`, and `disableModelInvocation` fields
 5. Every plan field must trace back to something you SCANNED — never guess
 6. Do NOT ask clarifying questions — scan and decide
 7. Do NOT duplicate existing `.github/` customizations

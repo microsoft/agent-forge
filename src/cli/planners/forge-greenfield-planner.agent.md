@@ -4,7 +4,7 @@ description: "Plans VS Code-compatible Copilot customization artifacts for NEW p
 tools:
   - read
   - edit
-user-invocable: false
+user-invokable: false
 disable-model-invocation: true
 ---
 
@@ -75,13 +75,13 @@ After deciding agent count, determine how agents should relate to each other:
 **When pattern ≠ `flat`:**
 
 1. **Mark one agent as orchestrator** (`agentRole: "orchestrator"`):
-   - Set `agents: ["worker-1", "worker-2", ...]` listing all subagent names
-   - Set `userInvocable: true`, `disableModelInvocation: true`
+   - Set `agents: ["worker-1", "worker-2", ...]` listing all subagent `name` slugs (prompt-builder resolves these to titles automatically)
+   - Set `userInvokable: true`, `disableModelInvocation: true`
    - Tools: `["read", "search", "agent", "todo"]` — NO `edit` or `execute` (pure delegation)
    - Responsibilities focus on coordination: decomposing tasks, delegating to subagents, validating results, tracking progress
 
 2. **Mark worker agents as subagents** (`agentRole: "subagent"`):
-   - Set `userInvocable: false` (hidden from dropdown, only invoked by orchestrator)
+   - Set `userInvokable: false` (hidden from dropdown, only invoked by orchestrator)
    - Set `disableModelInvocation: false` (allow orchestrator to invoke them)
    - Optionally set `model` for cost-efficient subagents (e.g., reviewers can use lighter models)
    - Tools appropriate for their role (e.g., implementers get `edit`/`execute`, reviewers get `read`/`search` only)
@@ -320,7 +320,7 @@ For the description: "Feature development system with research, planning, implem
       "category": "general",
       "agentRole": "orchestrator",
       "agents": ["researcher", "implementer", "reviewer"],
-      "userInvocable": true,
+      "userInvokable": true,
       "disableModelInvocation": true,
       "techStack": [],
       "responsibilities": [
@@ -344,7 +344,7 @@ For the description: "Feature development system with research, planning, implem
       "role": "Explores codebase patterns, gathers context, and returns structured research findings",
       "category": "general",
       "agentRole": "subagent",
-      "userInvocable": false,
+      "userInvokable": false,
       "techStack": [],
       "responsibilities": [
         "Search codebase for existing patterns, utilities, and conventions relevant to the task",
@@ -366,7 +366,7 @@ For the description: "Feature development system with research, planning, implem
       "role": "Writes production-quality code following project patterns and the provided implementation plan",
       "category": "general",
       "agentRole": "subagent",
-      "userInvocable": false,
+      "userInvokable": false,
       "techStack": [],
       "responsibilities": [
         "Implement code changes following the project's existing conventions and architecture",
@@ -388,7 +388,7 @@ For the description: "Feature development system with research, planning, implem
       "role": "Reviews code changes for security vulnerabilities, quality issues, and specification compliance",
       "category": "general",
       "agentRole": "subagent",
-      "userInvocable": false,
+      "userInvokable": false,
       "model": ["Claude Sonnet 4.5 (copilot)", "Gemini 3 Flash (Preview) (copilot)"],
       "techStack": [],
       "responsibilities": [
@@ -470,6 +470,6 @@ When the description is short or doesn't mention specific technologies:
 1. Follow Steps 1-7 in order — extract tech, decide count, decide orchestration pattern, name agents, write responsibilities, set globs, write skill descriptions
 2. Write ONLY `forge-plan.json` — never create artifact files
 3. Plan 1-4 agents with distinct, non-overlapping responsibilities
-4. When orchestration pattern ≠ `flat`, include `agentRole`, `agents`, `userInvocable`, and `disableModelInvocation` fields
+4. When orchestration pattern ≠ `flat`, include `agentRole`, `agents`, `userInvokable`, and `disableModelInvocation` fields
 5. Do NOT ask clarifying questions — make the best decision from available info
 6. Stop immediately after writing the plan file

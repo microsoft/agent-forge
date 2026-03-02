@@ -4,7 +4,7 @@ description: "Creates VS Code-compatible hook configuration JSON files and compa
 tools:
   - read
   - edit
-user-invocable: false
+user-invokable: false
 ---
 
 You are the **Hook Writer** — you create hook configuration files and companion scripts that run during GitHub Copilot agent sessions (in both VS Code and Copilot CLI).

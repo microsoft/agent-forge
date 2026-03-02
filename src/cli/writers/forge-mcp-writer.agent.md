@@ -4,7 +4,7 @@ description: "Creates VS Code-compatible .vscode/mcp.json MCP server configurati
 tools:
   - read
   - edit
-user-invocable: false
+user-invokable: false
 ---
 
 You are the **MCP Writer** — you create `.vscode/mcp.json` configurations for Model Context Protocol servers. Generated configs work in VS Code and can also be referenced in GitHub Copilot CLI agent profiles.

@@ -208,7 +208,7 @@ export async function postGenerationValidateAndFix(
  *   - Missing `description` — derives from body content or file name
  *   - Unrecognized fields — removes them (prevents VS Code warnings)
  *   - Missing `applyTo` for instructions — infers from file name/content
- *   - `user-invocable` as string — converts to boolean
+ *   - `user-invokable` as string — converts to boolean
  */
 async function autoFixFile(
   filePath: string,
@@ -270,17 +270,17 @@ async function autoFixFile(
     modified = true;
   }
 
-  // Fix: user-invocable as string → boolean
-  if ((type === "agent" || type === "skill") && typeof frontmatter["user-invocable"] === "string") {
-    frontmatter["user-invocable"] = frontmatter["user-invocable"] === "true";
+  // Fix: user-invokable as string → boolean
+  if ((type === "agent" || type === "skill") && typeof frontmatter["user-invokable"] === "string") {
+    frontmatter["user-invokable"] = frontmatter["user-invokable"] === "true";
     modified = true;
   }
 
-  // Fix: migrate deprecated infer → user-invocable + disable-model-invocation
+  // Fix: migrate deprecated infer → user-invokable + disable-model-invocation
   if ((type === "agent" || type === "skill") && "infer" in frontmatter) {
     const inferVal = frontmatter.infer;
     if (inferVal === false) {
-      frontmatter["user-invocable"] = frontmatter["user-invocable"] ?? false;
+      frontmatter["user-invokable"] = frontmatter["user-invokable"] ?? false;
       frontmatter["disable-model-invocation"] = frontmatter["disable-model-invocation"] ?? true;
     }
     delete frontmatter.infer;
@@ -359,7 +359,7 @@ const VALID_FIELDS: Partial<Record<ArtifactType, Set<string>>> = {
     "tools",
     "agents",
     "model",
-    "user-invocable",
+    "user-invokable",
     "disable-model-invocation",
     "target",
     "mcp-servers",
@@ -380,7 +380,7 @@ const VALID_FIELDS: Partial<Record<ArtifactType, Set<string>>> = {
     "name",
     "description",
     "argument-hint",
-    "user-invocable",
+    "user-invokable",
     "disable-model-invocation",
     "license",
     "compatibility",
@@ -509,7 +509,22 @@ async function validateArtifactsInDir(
   const agentsDirForXref = path.join(dir, "agents");
   if (await fs.pathExists(agentsDirForXref)) {
     const agentFiles = (await fs.readdir(agentsDirForXref)).filter((f) => f.endsWith(".agent.md"));
-    const agentNames = new Set(agentFiles.map((f) => f.replace(".agent.md", "")));
+    const agentFileSlugs = new Set(agentFiles.map((f) => f.replace(".agent.md", "")));
+
+    // Build a map of name field → filename slug AND name field → file path for cross-reference
+    const nameToSlug = new Map<string, string>();
+    const nameToFile = new Map<string, string>();
+    for (const file of agentFiles) {
+      const filePath = path.join(agentsDirForXref, file);
+      const content = await fs.readFile(filePath, "utf-8");
+      const { frontmatter } = parseFrontmatter(content);
+      const slug = file.replace(".agent.md", "");
+      const nameField = (frontmatter?.name as string) || slug;
+      nameToSlug.set(nameField, slug);
+      nameToFile.set(nameField, filePath);
+    }
+    // Set of all known agent name fields (for agents: resolution)
+    const agentNameFields = new Set(nameToSlug.keys());
 
     // Collect all agent frontmatters for cross-reference
     const orchestrators: Array<{ file: string; agents: string[]; name: string }> = [];
@@ -521,56 +536,48 @@ async function validateArtifactsInDir(
       const { frontmatter } = parseFrontmatter(content);
       if (!frontmatter) continue;
 
-      const name = file.replace(".agent.md", "");
+      const nameField = (frontmatter.name as string) || file.replace(".agent.md", "");
 
       // Collect orchestrators (agents with "agents" property)
       if (frontmatter.agents && Array.isArray(frontmatter.agents) && (frontmatter.agents as string[]).length > 0) {
         const agentsList = (frontmatter.agents as string[]).filter((a) => a !== "*");
-        orchestrators.push({ file: filePath, agents: agentsList, name });
+        orchestrators.push({ file: filePath, agents: agentsList, name: nameField });
 
-        // Check each referenced subagent exists
-        for (const subagentName of agentsList) {
-          if (!agentNames.has(subagentName)) {
+        // Check each referenced subagent exists — match against name fields first, then filename slugs as fallback
+        for (const subagentRef of agentsList) {
+          if (!agentNameFields.has(subagentRef) && !agentFileSlugs.has(subagentRef)) {
             findings.push({
               severity: "warning",
               file: filePath,
-              message: `Orchestrator references subagent "${subagentName}" but no "${subagentName}.agent.md" file exists`,
+              message: `Orchestrator references subagent "${subagentRef}" but no agent with that name field or filename exists`,
               field: "agents",
             });
           }
         }
       }
 
-      // Collect subagents (user-invocable: false)
-      if (frontmatter["user-invocable"] === false) {
-        subagents.push({ file: filePath, name });
+      // Collect subagents (user-invokable: false)
+      if (frontmatter["user-invokable"] === false) {
+        subagents.push({ file: filePath, name: nameField });
       }
     }
 
     // Check that subagents are referenced by at least one orchestrator
     const referencedSubagents = new Set(orchestrators.flatMap((o) => o.agents));
     for (const sub of subagents) {
-      if (!referencedSubagents.has(sub.name)) {
+      // Check if the subagent is referenced by name field OR by filename slug
+      const slug = nameToSlug.get(sub.name) || sub.name;
+      if (!referencedSubagents.has(sub.name) && !referencedSubagents.has(slug)) {
         findings.push({
           severity: "warning",
           file: sub.file,
-          message: `Agent "${sub.name}" has user-invocable: false but is not referenced in any orchestrator's "agents" array — it cannot be invoked`,
-          field: "user-invocable",
+          message: `Agent "${sub.name}" has user-invokable: false but is not referenced in any orchestrator's "agents" array — it cannot be invoked`,
+          field: "user-invokable",
         });
       }
     }
 
     // Check handoff agent references point to existing agents (by name field, not filename)
-    const agentNameFields = new Map<string, string>();
-    for (const file of agentFiles) {
-      const filePath = path.join(agentsDirForXref, file);
-      const content = await fs.readFile(filePath, "utf-8");
-      const { frontmatter } = parseFrontmatter(content);
-      if (frontmatter?.name) {
-        agentNameFields.set(frontmatter.name as string, filePath);
-      }
-    }
-
     for (const file of agentFiles) {
       const filePath = path.join(agentsDirForXref, file);
       const content = await fs.readFile(filePath, "utf-8");
@@ -823,12 +830,12 @@ async function validateFile(
 
   // Agent/Skill-specific checks
   if (type === "agent" || type === "skill") {
-    if (typeof frontmatter["user-invocable"] === "string") {
+    if (typeof frontmatter["user-invokable"] === "string") {
       findings.push({
         severity: "error",
         file: filePath,
-        message: 'Field "user-invocable" must be a boolean (true/false), not a string',
-        field: "user-invocable",
+        message: 'Field "user-invokable" must be a boolean (true/false), not a string',
+        field: "user-invokable",
         fixable: true,
       });
       hasError = true;
@@ -838,7 +845,7 @@ async function validateFile(
       findings.push({
         severity: "warning",
         file: filePath,
-        message: 'Field "infer" is deprecated. Use "user-invocable" and "disable-model-invocation" instead.',
+        message: 'Field "infer" is deprecated. Use "user-invokable" and "disable-model-invocation" instead.',
         field: "infer",
         fixable: true,
       });

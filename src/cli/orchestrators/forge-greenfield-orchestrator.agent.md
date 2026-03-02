@@ -72,7 +72,7 @@ agents:                                 # Include for orchestrator agents only
   - "subagent-1"                        # List of allowed subagent names
   - "subagent-2"
 model: "Claude Sonnet 4.5 (copilot)"   # Optional: single model or array for priority
-user-invocable: true
+user-invokable: true
 disable-model-invocation: false
 handoffs:                               # Include for flat multi-agent setups (not orchestrators)
   - label: "Hand off to Backend"
@@ -84,7 +84,7 @@ handoffs:                               # Include for flat multi-agent setups (n
 
 **Agent Role Patterns:**
 
-| Agent Role | `user-invocable` | `disable-model-invocation` | `agents` | Tools |
+| Agent Role | `user-invokable` | `disable-model-invocation` | `agents` | Tools |
 |-----------|-------------------|---------------------------|----------|-------|
 | **Standalone** (default) | `true` | `false` | _(omit)_ | `read`, `edit`, `search`, `execute` |
 | **Orchestrator** | `true` | `true` | `['worker-1', 'worker-2']` | `read`, `search`, `agent`, `todo` (NO `edit`/`execute`) |

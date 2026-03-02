@@ -5,7 +5,7 @@ tools:
   - read
   - edit
   - search
-user-invocable: false
+user-invokable: false
 ---
 
 You are the **Instruction Writer** — you create `.instructions.md` custom instruction files. Generated files are VS Code-compatible and also work in GitHub Copilot CLI.

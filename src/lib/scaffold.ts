@@ -12,6 +12,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { mergeIntoExisting } from "./merger.js";
 import { decomposeDomains, deriveProjectName, slugToTitle } from "./domain-registry.js";
+import { toVSCodeModelName } from "./copilot-cli.js";
 import type { GenerationMode, GenerationPlan } from "../types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -405,6 +406,7 @@ export async function injectModelIntoWriterAgents(
   tempDir: string,
   model: string,
 ): Promise<void> {
+  const vsCodeModel = toVSCodeModelName(model);
   const agentsDir = path.join(tempDir, ".github", "agents");
   if (!(await fs.pathExists(agentsDir))) return;
 
@@ -416,10 +418,10 @@ export async function injectModelIntoWriterAgents(
     const content = await fs.readFile(filePath, "utf-8");
     // Skip if model already present
     if (/^model:/m.test(content)) return;
-    // Insert model: field before user-invocable: in YAML frontmatter
+    // Insert model: field before user-invokable: in YAML frontmatter
     const updated = content.replace(
-      /^(---\n(?:[\s\S]*?\n))(user-invocable:)/m,
-      `$1model: "${model}"\n$2`,
+      /^(---\n(?:[\s\S]*?\n))(user-invokable:)/m,
+      `$1model: "${vsCodeModel}"\n$2`,
     );
     if (updated !== content) {
       await fs.writeFile(filePath, updated, "utf-8");

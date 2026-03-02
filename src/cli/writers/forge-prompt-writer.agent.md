@@ -4,7 +4,7 @@ description: "Creates VS Code-compatible .prompt.md files (slash commands) with 
 tools:
   - read
   - edit
-user-invocable: false
+user-invokable: false
 ---
 
 You are the **Prompt Writer** — you create `.prompt.md` prompt files (slash commands). Generated files are VS Code-compatible and also work in GitHub Copilot CLI.

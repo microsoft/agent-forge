@@ -4,7 +4,7 @@ description: "Creates agentic workflow markdown files for GitHub Copilot coding 
 tools:
   - read
   - edit
-user-invocable: false
+user-invokable: false
 ---
 
 You are the **Workflow Writer** — you create agentic workflow files for GitHub Copilot coding agent automation. These workflows run on GitHub (not in VS Code or Copilot CLI).

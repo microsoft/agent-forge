@@ -107,6 +107,17 @@ export function getModelMultiplier(modelId: string): number {
 }
 
 /**
+ * Convert a CLI model ID to the VS Code display name for agent frontmatter.
+ * VS Code resolves model references by display name (e.g., "Claude Sonnet 4.6 (copilot)").
+ * Returns the input unchanged if it already looks like a display name or is unknown.
+ */
+export function toVSCodeModelName(modelId: string): string {
+  if (modelId.includes("(")) return modelId;
+  const entry = AVAILABLE_MODELS.find((m) => m.value === modelId);
+  return entry ? `${entry.name} (copilot)` : modelId;
+}
+
+/**
  * Interactive model picker. Returns the selected model ID.
  * Shows premium request multiplier badges next to each model.
  */

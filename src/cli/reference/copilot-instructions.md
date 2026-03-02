@@ -31,7 +31,7 @@ model: "Claude Sonnet 4.5 (copilot)"   # Optional: single model or prioritized a
 # model:                                # Array form — tries each in order until available:
 #   - "Claude Sonnet 4.5 (copilot)"
 #   - "Gemini 3 Flash (Preview) (copilot)"
-user-invocable: true                    # Show in agent dropdown (default: true)
+user-invokable: true                    # Show in agent dropdown (default: true)
 disable-model-invocation: false         # Prevent auto-delegation (default: false)
 target: "vscode"                        # Optional: "vscode" or "github-copilot" (both if omitted)
 handoffs:                               # Multi-agent workflow transitions (flat pattern)
@@ -50,7 +50,7 @@ Body: markdown instructions for the agent.
 |----------|---------|---------|
 | `agents` | List of allowed subagent names for this agent. Use `'*'` to allow all, `[]` to prevent any. Only meaningful when `agent` tool is included. | `'*'` (all) |
 | `model` | AI model for this agent. String or prioritized array. Useful for cost-efficient subagents. | Inherits from session |
-| `user-invocable` | Whether agent appears in the agents dropdown. Set `false` for subagent-only agents. | `true` |
+| `user-invokable` | Whether agent appears in the agents dropdown. Set `false` for subagent-only agents. | `true` |
 | `disable-model-invocation` | Whether to prevent other agents from auto-invoking this as a subagent. Set `true` for orchestrators (user-invoked only). | `false` |
 
 ### Tool Aliases Reference
@@ -104,7 +104,7 @@ Body: rules grouped under ## headings, bullet points with reasoning.
 name: "skill-slug"                      # REQUIRED — must match parent directory name
 description: "Domain knowledge. USE FOR: 5+ trigger phrases. DO NOT USE FOR: 3+ exclusions."  # REQUIRED (1-1024 chars)
 argument-hint: "[topic or context]"       # Hint shown in chat input for /slash command
-user-invocable: true                      # Show in /slash menu (default: true)
+user-invokable: true                      # Show in /slash menu (default: true)
 disable-model-invocation: false           # Allow auto-loading (default: false)
 license: "MIT"                            # Optional license
 compatibility: "Requires Node.js 18+"    # Optional environment requirements (1-500 chars)
@@ -172,7 +172,7 @@ Events: `sessionStart`, `sessionEnd`, `userPromptSubmitted`, `preToolUse`, `post
 7. **No duplicate content** — instructions codify standards, skills provide knowledge, agents define behavior. Don't repeat across them.
 8. All agents that build/test code must include `execute` (or `run_in_terminal`) in tools.
 9. **Orchestrator agents** must have `agents` property, `agent` tool, and MUST NOT have `edit` or `execute` tools.
-10. **Subagent agents** must have `user-invocable: false` and should be listed in their orchestrator's `agents` array.
+10. **Subagent agents** must have `user-invokable: false` and should be listed in their orchestrator's `agents` array.
 
 ## Orchestration Patterns
 
@@ -188,7 +188,7 @@ A coordinator agent manages the overall task and delegates to specialized worker
 name: "Feature Builder"
 tools: ['read', 'search', 'agent', 'todo']     # NO edit/execute — delegates everything
 agents: ['researcher', 'implementer', 'reviewer']
-user-invocable: true
+user-invokable: true
 disable-model-invocation: true
 ---
 # Body: decompose → delegate → validate → iterate
@@ -199,7 +199,7 @@ disable-model-invocation: true
 ---
 name: "Implementer"
 tools: ['read', 'edit', 'search', 'execute']
-user-invocable: false                           # Only invoked by orchestrator
+user-invokable: false                           # Only invoked by orchestrator
 model: ['Claude Sonnet 4.5 (copilot)', 'Gemini 3 Flash (Preview) (copilot)']
 ---
 # Body: focused expertise, structured output
