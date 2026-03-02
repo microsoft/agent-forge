@@ -22,6 +22,45 @@ AGENT-FORGE is a Context Engineering Toolkit that generates GitHub Copilot custo
 
 ---
 
+## How It Works
+
+AGENT-FORGE uses a **plan-then-execute** architecture powered by GitHub Copilot CLI:
+
+1. **Plan** — A planner agent analyzes your description (greenfield) or scans your codebase (brownfield), extracts the tech stack, decomposes it into domains, and outputs a `forge-plan.json`.
+2. **Execute** — An orchestrator reads the plan and delegates to 7 specialized writer agents that create each artifact type.
+3. **Validate** — All generated files are checked for YAML correctness, valid tool names, and content quality. Issues are auto-fixed when possible.
+4. **Install** — Artifacts are placed into `.github/` and `.vscode/` with smart merge logic.
+
+```
+forge init / generate
+        │
+        ▼
+   ┌─────────┐     Analyzes description or scans codebase
+   │ Planner  │──▶  Extracts tech stack, decomposes domains
+   └────┬────┘     Outputs forge-plan.json
+        │
+        ▼
+   ┌──────────────┐
+   │ Orchestrator  │──▶  Reads plan, delegates to writers
+   └──────┬───────┘
+          │
+          ├──▶ Agent Writer       → *.agent.md
+          ├──▶ Instruction Writer → *.instructions.md
+          ├──▶ Skill Writer       → SKILL.md
+          ├──▶ Prompt Writer      → *.prompt.md
+          ├──▶ Hook Writer        → hooks/*.json
+          ├──▶ MCP Writer         → .vscode/mcp.json
+          └──▶ Workflow Writer    → workflows/*.md
+                                        │
+                                        ▼
+                                  Validate & Auto-fix
+                                        │
+                                        ▼
+                                  Install to .github/
+```
+
+---
+
 ## Prerequisites
 
 **Required:**
@@ -320,42 +359,3 @@ Pass `--model <value>` or choose interactively during generation:
 | `claude-opus-4.6` | Claude Opus 4.6 | Highest quality — deep reasoning | 5× |
 
 </details>
-
----
-
-## How It Works
-
-AGENT-FORGE uses a **plan-then-execute** architecture powered by GitHub Copilot CLI:
-
-1. **Plan** — A planner agent analyzes your description (greenfield) or scans your codebase (brownfield), extracts the tech stack, decomposes it into domains, and outputs a `forge-plan.json`.
-2. **Execute** — An orchestrator reads the plan and delegates to 7 specialized writer agents that create each artifact type.
-3. **Validate** — All generated files are checked for YAML correctness, valid tool names, and content quality. Issues are auto-fixed when possible.
-4. **Install** — Artifacts are placed into `.github/` and `.vscode/` with smart merge logic.
-
-```
-forge init / generate
-        │
-        ▼
-   ┌─────────┐     Analyzes description or scans codebase
-   │ Planner  │──▶  Extracts tech stack, decomposes domains
-   └────┬────┘     Outputs forge-plan.json
-        │
-        ▼
-   ┌──────────────┐
-   │ Orchestrator  │──▶  Reads plan, delegates to writers
-   └──────┬───────┘
-          │
-          ├──▶ Agent Writer       → *.agent.md
-          ├──▶ Instruction Writer → *.instructions.md
-          ├──▶ Skill Writer       → SKILL.md
-          ├──▶ Prompt Writer      → *.prompt.md
-          ├──▶ Hook Writer        → hooks/*.json
-          ├──▶ MCP Writer         → .vscode/mcp.json
-          └──▶ Workflow Writer    → workflows/*.md
-                                        │
-                                        ▼
-                                  Validate & Auto-fix
-                                        │
-                                        ▼
-                                  Install to .github/
-```
