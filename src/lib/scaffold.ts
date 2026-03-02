@@ -397,6 +397,39 @@ export async function prepareWorkspaceForPlan(
 }
 
 /**
+ * Inject the user-selected model into writer agent files in the temp workspace.
+ * Per GitHub Copilot CLI docs, subagents in /fleet mode use a low-cost model by default.
+ * Adding `model:` to the agent's YAML frontmatter forces the subagent to use the specified model.
+ */
+export async function injectModelIntoWriterAgents(
+  tempDir: string,
+  model: string,
+): Promise<void> {
+  const agentsDir = path.join(tempDir, ".github", "agents");
+  if (!(await fs.pathExists(agentsDir))) return;
+
+  const writerFiles = (await fs.readdir(agentsDir))
+    .filter((f) => f.startsWith("forge-") && f.endsWith("-writer.agent.md"));
+
+  const promises = writerFiles.map(async (file) => {
+    const filePath = path.join(agentsDir, file);
+    const content = await fs.readFile(filePath, "utf-8");
+    // Skip if model already present
+    if (/^model:/m.test(content)) return;
+    // Insert model: field before user-invocable: in YAML frontmatter
+    const updated = content.replace(
+      /^(---\n(?:[\s\S]*?\n))(user-invocable:)/m,
+      `$1model: "${model}"\n$2`,
+    );
+    if (updated !== content) {
+      await fs.writeFile(filePath, updated, "utf-8");
+    }
+  });
+
+  await Promise.all(promises);
+}
+
+/**
  * Read and parse the forge-plan.json written by the forge-planner agent.
  * Searches multiple candidate locations within the temp workspace.
  * Validates required fields and returns a typed GenerationPlan.

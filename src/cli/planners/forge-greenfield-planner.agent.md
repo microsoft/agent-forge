@@ -55,11 +55,22 @@ After deciding agent count, determine how agents should relate to each other:
 | Condition | Pattern | Structure |
 |-----------|---------|----------|
 | 1-2 agents OR simple project | **`flat`** (default) | Peer agents with optional handoffs |
+| ≥3 agents + spanning ≥2 programming languages (e.g., TypeScript + Python, Java + Python) | **`coordinator-worker`** | Coordinator + specialized worker subagents |
+| ≥3 agents + separate runtime environments (e.g., frontend server + backend API + AI/ML service) | **`coordinator-worker`** | Coordinator + specialized worker subagents |
+| ≥3 agents + keywords: "microservice", "multi-service", "distributed", "orchestrate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
+| ≥3 agents + keywords: "plan", "research", "workflow", "coordinate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
 | ≥3 agents + keywords: "review", "quality", "audit", "multi-perspective" | **`multi-perspective`** | Orchestrator + specialized reviewer subagents |
 | ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator + red/green/refactor subagents |
-| ≥3 agents + keywords: "plan", "research", "workflow", "coordinate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
 | ≥3 agents + clear dependency chain (plan → implement → review) | **`pipeline`** | Pipeline orchestrator + sequential stage subagents |
 | Otherwise | **`flat`** | Current behavior — all agents are peer-level |
+
+**Smart Default Rule**: When you have ≥3 agents and the project spans multiple programming languages, multiple runtime environments, or has a database shared across services — **prefer `coordinator-worker` over `flat`** even if no specific keywords are present. A coordinator becomes essential when agents work across language boundaries (e.g., React/TypeScript frontend + Express/Node.js backend + FastAPI/Python AI service) because cross-stack tasks need decomposition and delegation.
+
+**Examples that should trigger `coordinator-worker`**:
+- "e-commerce app with React frontend, Express backend, and FastAPI AI service" → 3 agents, 2 languages → `coordinator-worker`
+- "dashboard with Vue.js, Django REST API, and PostgreSQL" → 3 agents, 2 languages → `coordinator-worker`
+- "fullstack app with Next.js and Python ML pipeline" → 2 agents, 2 languages → `flat` (only 2 agents)
+- "React app with TailwindCSS and Redux" → 1 agent, 1 language → `flat`
 
 **When pattern ≠ `flat`:**
 

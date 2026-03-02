@@ -168,24 +168,17 @@ export interface InitOptions {
   /** Strategy for Analyze mode: "auto" (scan-only) or "guided" (scan + custom requirements) */
   analyzeStrategy?: AnalyzeStrategy;
   useCases?: string[];
-  /** Generation speed: "standard" (single session, ~2 PRU) or "turbo" (parallel sessions, faster) */
-  speed?: SpeedStrategy;
   /** Skip the prerequisite check at the start of `forge init` */
   skipCheck?: boolean;
   /** Agent design pattern: "auto" (AI decides), "standalone" (flat with handoffs), "subagent" (coordinator-worker) */
   agentDesignPattern?: AgentDesignPattern;
 }
 
-/** Generation speed strategy */
-export type SpeedStrategy = "standard" | "turbo";
-
 /** Options for the generate command */
 export interface GenerateOptions {
   model?: string;
   mode?: GenerationMode;
   types?: ArtifactType[];
-  /** Generation speed: "standard" (single session, ~2 PRU) or "turbo" (parallel sessions, faster) */
-  speed?: SpeedStrategy;
   /** Max autopilot continuation steps (default: 25 for planning, 15 for turbo writers) */
   maxContinues?: number;
 }

@@ -6,7 +6,7 @@ import { listCommand } from "./commands/list.js";
 import { validateCommand } from "./commands/validate.js";
 import { checkCommand } from "./commands/check.js";
 import type { InitMode, GenerationMode, ArtifactType, ValidateOptions } from "./types.js";
-import type { AnalyzeStrategy, SpeedStrategy, AgentDesignPattern } from "./types.js";
+import type { AnalyzeStrategy, AgentDesignPattern } from "./types.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -28,7 +28,6 @@ program
   .option("--description <text>", "Use case description (skip prompt)")
   .option("--model <model>", "Model to use for AI generation")
   .option("--strategy <strategy>", "Analyze strategy: auto (scan-only) or guided (scan + custom requirements)")
-  .option("--speed <speed>", "Generation speed: standard (single session, ~2 PRU) or turbo (parallel sessions, faster)")
   .option(
     "--use-cases <ids>",
     "Comma-separated template IDs to install (e.g., code-review,testing)",
@@ -43,7 +42,6 @@ program
       model: opts.model,
       analyzeStrategy: opts.strategy as AnalyzeStrategy | undefined,
       useCases: opts.useCases?.split(",").map((s: string) => s.trim()),
-      speed: opts.speed as SpeedStrategy | undefined,
       skipCheck: opts.skipCheck,
       agentDesignPattern: opts.pattern as AgentDesignPattern | undefined,
     });
@@ -55,13 +53,11 @@ program
   .option("--model <model>", "Model to use for AI generation")
   .option("--mode <mode>", "Generation mode (discovery, full, on-demand, mcp-server, hooks, agentic-workflow)")
   .option("--types <types>", "Comma-separated artifact types for on-demand mode")
-  .option("--speed <speed>", "Generation speed: standard (single session, ~2 PRU) or turbo (parallel sessions, faster)")
   .action(async (description: string, opts) => {
     await generateCommand(description, {
       model: opts.model,
       mode: opts.mode as GenerationMode | undefined,
       types: opts.types?.split(",").map((s: string) => s.trim()) as ArtifactType[] | undefined,
-      speed: opts.speed as import("./types.js").SpeedStrategy | undefined,
     });
   });
 

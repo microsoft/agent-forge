@@ -10,13 +10,13 @@ import {
   cleanupGenerationWorkspace,
   readPlanFile,
   prepareWorkspaceForPlan,
+  injectModelIntoWriterAgents,
 } from "../lib/scaffold.js";
 import { getGallery } from "../lib/gallery.js";
 import { detectWorkspace } from "../lib/detector.js";
 import {
   launchCopilotCli,
   selectModel,
-  getModelMultiplier,
   formatDuration,
   formatTokens,
   aggregateCliOutputs,
@@ -24,7 +24,6 @@ import {
 import type { CliOutput } from "../lib/copilot-cli.js";
 import {
   buildPlanningPrompt,
-  buildOrchestrationPromptFromPlan,
   buildFleetOrchestrationPrompt,
 } from "../lib/prompt-builder.js";
 import { postGenerationValidateAndFix } from "../lib/validator.js";
@@ -35,7 +34,7 @@ import {
   hasWarnings,
   printMissingInstallGuide,
 } from "../lib/prerequisites.js";
-import type { InitOptions, InitMode, AnalyzeStrategy, GenerationMode, SpeedStrategy, AgentDesignPattern, WorkspaceInfo } from "../types.js";
+import type { InitOptions, InitMode, AnalyzeStrategy, GenerationMode, AgentDesignPattern, WorkspaceInfo } from "../types.js";
 
 // ── Side-by-side AGENT-FORGE block art (6 rows) ───────────────────────
 const BANNER_ROWS = [
@@ -136,9 +135,18 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-/** Pad a string to a visual width, accounting for ANSI escape codes */
+/** Count extra visual columns for wide characters (emoji, CJK, etc.) */
+function extraVisualWidth(str: string): number {
+  // Match emoji sequences (including ZWJ, skin tones, flags) that occupy 2 columns
+  const emojiPattern = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1FA00}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}⚡]/gu;
+  const matches = str.match(emojiPattern);
+  return matches ? matches.length : 0;
+}
+
+/** Pad a string to a visual width, accounting for ANSI escape codes and wide characters */
 function vpad(str: string, width: number): string {
-  const visual = stripAnsi(str).length;
+  const plain = stripAnsi(str);
+  const visual = plain.length + extraVisualWidth(plain);
   return str + " ".repeat(Math.max(0, width - visual));
 }
 
@@ -489,23 +497,6 @@ async function runGeneration(
   // Model selection
   const model = options.model ?? await selectModel();
 
-  // Speed selection (ask early so user makes all decisions upfront)
-  const multiplier = getModelMultiplier(model);
-  const speed: SpeedStrategy = options.speed ?? await select<SpeedStrategy>({
-    message: "Generation speed:",
-    choices: [
-      {
-        value: "standard" as SpeedStrategy,
-        name: `${chalk.white("Standard")}  ${chalk.dim(`— Sequential generation, ~${2 * multiplier} PRU`)}`,
-      },
-      {
-        value: "turbo" as SpeedStrategy,
-        name: `${chalk.hex("#FFD700")("Turbo")}     ${chalk.dim("— Fleet mode, parallel subagents, faster")} ${chalk.hex("#FFD700")("⚡")}`,
-      },
-    ],
-    default: "standard",
-  });
-
   // Prepare workspace
   const spinner = ora("Preparing workspace...").start();
   const { tempDir, slug, title, domains } = await prepareGenerationWorkspace(description, generationMode, pipeline, pipeline === "brownfield" ? targetDir : undefined);
@@ -519,7 +510,6 @@ async function runGeneration(
   sectionHeader("Phase 1 · Planning");
   detail("Pipeline", pipelineLabel);
   detail("Model", model);
-  detail("Speed", speed === "turbo" ? "Turbo ⚡" : "Standard");
   if (agentDesignPattern !== "auto") {
     detail("Pattern", agentDesignPattern === "subagent" ? "Subagent (coordinator-worker)" : "Standalone (handoffs)");
   }
@@ -545,9 +535,11 @@ async function runGeneration(
 
   await prepareWorkspaceForPlan(tempDir, plan);
 
+  // Inject user-selected model into writer agents so /fleet subagents use it instead of the low-cost default
+  await injectModelIntoWriterAgents(tempDir, model);
+
   // ── Phase 2: Generating ────────────────────────────────────────────
-  const speedLabel = speed === "turbo" ? "Turbo ⚡" : "Standard";
-  sectionHeader(`Phase 2 · Generating (${speedLabel})`);
+  sectionHeader("Phase 2 · Generating (Fleet ⚡)");
 
   let exitCode: number;
   const phase2Start = Date.now();
@@ -558,31 +550,21 @@ async function runGeneration(
     writers: [],
   };
 
-  if (speed === "turbo") {
-    // Turbo: single session with /fleet — Copilot CLI delegates to writer subagents in parallel
-    const fleetPrompt = buildFleetOrchestrationPrompt(plan, generationMode);
+  // Fleet mode: single session with /fleet — Copilot CLI delegates to writer subagents in parallel
+  const fleetPrompt = buildFleetOrchestrationPrompt(plan, generationMode, model);
 
-    detail("Mode", "Fleet (parallel subagents)");
-    console.log();
+  detail("Mode", "Fleet (parallel subagents)");
+  console.log();
 
-    const fleetOutput = await launchCopilotCli(tempDir, fleetPrompt, {
-      model,
-      agent: orchestratorAgent,
-      maxContinues: 25,
-      fleet: true,
-    });
-    writerDurationMs = fleetOutput.sessionTimeMs || 0;
-    phaseOutputs.orchestrator = fleetOutput;
-    exitCode = fleetOutput.exitCode;
-  } else {
-    detail("Session", "single orchestrator");
-    console.log();
-
-    const orchPrompt = buildOrchestrationPromptFromPlan(plan, generationMode);
-    const orchOutput = await launchCopilotCli(tempDir, orchPrompt, { model, agent: orchestratorAgent });
-    phaseOutputs.orchestrator = orchOutput;
-    exitCode = orchOutput.exitCode;
-  }
+  const fleetOutput = await launchCopilotCli(tempDir, fleetPrompt, {
+    model,
+    agent: orchestratorAgent,
+    maxContinues: 25,
+    fleet: true,
+  });
+  writerDurationMs = fleetOutput.sessionTimeMs || 0;
+  phaseOutputs.orchestrator = fleetOutput;
+  exitCode = fleetOutput.exitCode;
 
   const phase2Duration = Date.now() - phase2Start;
 
@@ -627,8 +609,7 @@ async function runGeneration(
     const totalOutput = aggregateCliOutputs(allOutputs);
 
     const totalPru = totalOutput.premiumRequests;
-    const estimatedPru = (speed === "turbo" ? plan.agents.length + 1 : 2) * multiplier;
-    const pruLabel = totalPru > 0 ? `${totalPru} PRU` : `~${estimatedPru} PRU`;
+    const pruLabel = totalPru > 0 ? `${totalPru} PRU` : `~2 PRU`;
 
     // Per-phase breakdown table
     // Use a row helper that pads the ENTIRE row to boxWidth, guaranteeing right-border alignment
@@ -638,7 +619,8 @@ async function runGeneration(
 
     /** Build a table row with right-border aligned to boxWidth */
     const row = (content: string): string => {
-      const visual = stripAnsi(content).length;
+      const plain = stripAnsi(content);
+      const visual = plain.length + extraVisualWidth(plain);
       const pad = Math.max(0, boxWidth - visual);
       return bc("  │") + content + " ".repeat(pad) + bc("│");
     };
@@ -658,22 +640,12 @@ async function runGeneration(
     const planTokenStr = formatTokens(planOutput.tokenBreakdown) || "–";
     console.log(row(`  ${chalk.white("Planning".padEnd(14))}${chalk.cyan(planDurStr.padEnd(12))}${chalk.white(planPruStr.padEnd(8))}${chalk.dim(planTokenStr)}`));
 
-    if (speed === "turbo") {
-      if (phaseOutputs.orchestrator) {
-        const oOut = phaseOutputs.orchestrator;
-        const oDurStr = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
-        const oPruStr = oOut.premiumRequests > 0 ? String(oOut.premiumRequests) : "–";
-        const oTokenStr = formatTokens(oOut.tokenBreakdown) || "–";
-        console.log(row(`  ${chalk.hex("#FFD700")("Fleet ⚡".padEnd(14))}${chalk.cyan(oDurStr.padEnd(12))}${chalk.white(oPruStr.padEnd(8))}${chalk.dim(oTokenStr)}`));
-      }
-    } else {
-      if (phaseOutputs.orchestrator) {
-        const oOut = phaseOutputs.orchestrator;
-        const oDurStr = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
-        const oPruStr = oOut.premiumRequests > 0 ? String(oOut.premiumRequests) : "–";
-        const oTokenStr = formatTokens(oOut.tokenBreakdown) || "–";
-        console.log(row(`  ${chalk.white("Generation".padEnd(14))}${chalk.cyan(oDurStr.padEnd(12))}${chalk.white(oPruStr.padEnd(8))}${chalk.dim(oTokenStr)}`));
-      }
+    if (phaseOutputs.orchestrator) {
+      const oOut = phaseOutputs.orchestrator;
+      const oDurStr = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
+      const oPruStr = oOut.premiumRequests > 0 ? String(oOut.premiumRequests) : "–";
+      const oTokenStr = formatTokens(oOut.tokenBreakdown) || "–";
+      console.log(row(`  ${chalk.hex("#FFD700")("Fleet ⚡".padEnd(14))}${chalk.cyan(oDurStr.padEnd(12))}${chalk.white(oPruStr.padEnd(8))}${chalk.dim(oTokenStr)}`));
     }
 
     // Total row
@@ -683,7 +655,7 @@ async function runGeneration(
     console.log(row(`  ${chalk.white.bold("Total".padEnd(14))}${chalk.cyan.bold(totalDurStr.padEnd(12))}${chalk.hex("#FFD700").bold(pruLabel.padEnd(8))}${chalk.dim(totalTokenStr)}`));
     console.log(row(""));
     console.log(row(`  ${chalk.dim("Files")} ${chalk.white.bold(String(installed.length))}${" ".repeat(13)}${chalk.dim("Model")} ${chalk.white.bold(model)}`));
-    console.log(row(`  ${chalk.dim("Speed")} ${chalk.white.bold(speed === "turbo" ? "Turbo (fleet)" : "Standard")}`));
+    console.log(row(`  ${chalk.dim("Speed")} ${chalk.white.bold("Fleet ⚡")}`));
     console.log(bc(`  └${divider}┘`));
 
     printGeneratedFiles(plan.slug, installed);

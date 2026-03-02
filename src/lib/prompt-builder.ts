@@ -93,7 +93,7 @@ YAML frontmatter properties (all agents MUST include these):
 - \`mcp-servers\`: object — optional inline MCP server config for this agent
 - \`handoffs\`: list of handoff definitions for multi-agent workflows:
   - \`label\`: button text shown to user
-  - \`agent\`: target agent name
+  - \`agent\`: target agent's \`name\` field value (MUST match EXACTLY — VS Code resolves handoffs by name field, NOT filename)
   - \`prompt\`: message sent when handing off
   - \`send\`: boolean (whether to send immediately)
 - \`agents\`: list of allowed subagent names (for orchestrator agents):
@@ -444,10 +444,14 @@ export function buildPlanningPrompt(
     `| Pattern | When to Use | Structure |`,
     `|---------|-------------|-----------|`,
     `| \`flat\` (default) | 1-2 agents, simple projects | Peer agents with optional handoffs |`,
-    `| \`coordinator-worker\` | 3+ agents, "plan", "research", "workflow", "coordinate" | Orchestrator + specialized workers |`,
+    `| \`coordinator-worker\` | 3+ agents spanning ≥2 programming languages (e.g., TypeScript + Python) | Orchestrator + specialized workers |`,
+    `| \`coordinator-worker\` | 3+ agents with separate runtime environments (frontend + backend + AI/ML) | Orchestrator + specialized workers |`,
+    `| \`coordinator-worker\` | 3+ agents, "microservice", "distributed", "orchestrate", "plan", "research", "workflow", "coordinate" | Orchestrator + specialized workers |`,
     `| \`multi-perspective\` | 3+ agents, "review", "quality", "audit" | Orchestrator + parallel reviewers |`,
     `| \`tdd\` | 3+ agents, "TDD", "test-driven" | TDD coordinator + red/green/refactor |`,
     `| \`pipeline\` | 3+ agents, clear dependency chain | Pipeline orchestrator + sequential stages |`,
+    ``,
+    `**Smart Default**: When ≥3 agents span multiple programming languages or runtime environments, prefer \`coordinator-worker\` over \`flat\` — coordination is essential when agents work across language boundaries.`,
     ``,
     `When pattern ≠ \`flat\`, include these fields in each agent:`,
     `- \`agentRole\`: \`"orchestrator"\` or \`"subagent"\` or \`"standalone"\``,
@@ -477,197 +481,7 @@ export function buildPlanningPrompt(
 
 // ─── Orchestration Prompt Builder (Plan-based) ───
 
-/**
- * Build an orchestration prompt from a parsed GenerationPlan.
- * Used for standard (non-turbo) mode — single session, sequential file creation.
- * Includes format specs and reference examples inline so the orchestrator has
- * everything it needs without reading external reference files.
- */
-export function buildOrchestrationPromptFromPlan(
-  plan: GenerationPlan,
-  mode: GenerationMode,
-): string {
-  const refs = loadReferenceExamples();
-
-  const sections: string[] = [
-    `Generate VS Code-compatible Copilot customization files based on the following plan.`,
-    `All generated artifact files MUST follow VS Code format specs (see below). These artifacts also work in GitHub Copilot CLI.`,
-    ``,
-    `## Use Case`,
-    `"${plan.description}"`,
-    ``,
-    `## Generation Mode: ${mode}`,
-    ``,
-  ];
-
-  // Embed VSCode format specs so sub-agents know the exact expected format
-  sections.push(
-    VSCODE_AGENT_SPEC,
-    ``,
-    VSCODE_INSTRUCTION_SPEC,
-    ``,
-    VSCODE_SKILL_SPEC,
-    ``,
-    VSCODE_PROMPT_SPEC,
-    ``,
-  );
-
-  // Include reference examples if available
-  if (refs) {
-    sections.push(
-      `## Reference Examples (match this format and quality level)`,
-      ``,
-      `### Example Agent File`,
-      "```markdown",
-      refs.agent.slice(0, 1500),
-      "```",
-      ``,
-      `### Example Instruction File`,
-      "```markdown",
-      refs.instruction,
-      "```",
-      ``,
-      `### Example Prompt File`,
-      "```markdown",
-      refs.prompt,
-      "```",
-      ``,
-    );
-  }
-
-  // Agent delegation
-  if (plan.agents.length > 0) {
-    const isOrchestrated = plan.orchestrationPattern && plan.orchestrationPattern !== "flat";
-
-    const agentDetails = plan.agents.map((a: PlannedAgent) => {
-      const tech = a.techStack.length > 0 ? ` (${a.techStack.join(", ")})` : "";
-      const resp = a.responsibilities.map((r: string) => `    - ${r}`).join("\n");
-      const roleInfo = a.agentRole ? `    - Agent Role: ${a.agentRole}` : "";
-      const agentsInfo = a.agents && a.agents.length > 0 ? `    - Subagents: ${a.agents.join(", ")}` : "";
-      const invokableInfo = a.userInvocable === false ? `    - user-invocable: false (subagent only)` : "";
-      const disableInfo = a.disableModelInvocation === true ? `    - disable-model-invocation: true (user-invoked only)` : "";
-      const modelInfo = a.model ? `    - Model: ${Array.isArray(a.model) ? a.model.join(", ") : a.model}` : "";
-
-      const lines = [
-        `  - **Agent file**: \`.github/agents/${a.name}.agent.md\``,
-        `    - Title: ${a.title}`,
-        `    - Role: ${a.role}${tech}`,
-        `    - Category: ${a.category}`,
-        `    - ApplyTo: ${a.applyToGlob}`,
-        roleInfo,
-        agentsInfo,
-        invokableInfo,
-        disableInfo,
-        modelInfo,
-        `    - Responsibilities:`,
-        resp,
-      ];
-
-      // Orchestrators don't edit files — skip instruction and skill files for them
-      if (a.agentRole !== "orchestrator") {
-        lines.push(
-          `  - **Instruction file**: \`.github/instructions/${a.name}.instructions.md\``,
-          `    - ApplyTo: "${a.applyToGlob}"`,
-          `    - Description: "${a.instruction.description}"`,
-          `  - **Skill file**: \`.github/skills/${a.name}/SKILL.md\``,
-          `    - Description: "${a.skill.description}"`,
-        );
-      }
-
-      return lines.filter(Boolean).join("\n");
-    }).join("\n\n");
-
-    sections.push(
-      `## Artifacts to Create (per-agent aligned architecture)`,
-      ``,
-      `Each agent gets its own instruction file (loaded via applyTo globs) and skill file (loaded on-demand via trigger phrases).`,
-      isOrchestrated ? `\n**Orchestration Pattern: ${plan.orchestrationPattern}** — agents use subagent delegation instead of flat handoffs.` : ``,
-      ``,
-      agentDetails,
-      ``,
-      `### Creation Tasks`,
-      ``,
-      `Create each artifact type following the format specs above.`,
-      ``,
-      `**Agent files** — Create ALL agent files listed above.`,
-    );
-
-    if (isOrchestrated) {
-      sections.push(
-        `  - Orchestrator agents: include \`agents\` property listing subagent names, \`agent\` and \`todo\` tools, NO \`edit\`/\`execute\`. Body: cardinal rule (never implement), plan-first workflow (analyze → plan → delegate → integrate → report), planning protocol with shared contracts and task dependencies, delegation protocol, subagent roles.`,
-        `  - Subagent agents: include \`user-invocable: false\`. Body: focused expertise, structured output, autonomous operation. Add \`model\` if specified in plan.`,
-        `  - Do NOT add \`handoffs\` to orchestrated agents — they use subagent delegation instead.`,
-      );
-    } else {
-      sections.push(
-        `  - Each MUST include: \`argument-hint\`, \`user-invocable: true\`, \`execute\` (or \`run_in_terminal\`) in tools list.`,
-        plan.agents.length > 1 ? `  - Add \`handoffs\` between agents so users can transition between them.` : ``,
-      );
-    }
-
-    sections.push(
-      `**Instruction files** — Create instruction files for each **non-orchestrator** agent (each with its own applyTo glob). Do NOT create an instruction file for orchestrator agents — orchestrators delegate work and never edit files directly.`,
-      `**Skill files** — Create skill files for each **non-orchestrator** agent. Each skill description MUST have ≥5 USE FOR and ≥3 DO NOT USE FOR trigger phrases. Do NOT create a skill file for orchestrator agents.`,
-      ``,
-    );
-  }
-
-  // Prompt
-  if (plan.prompt) {
-    sections.push(
-      `**Prompt file** — Create: \`.github/prompts/${plan.prompt.slug}.prompt.md\``,
-      `  - Description: "${plan.prompt.description}"`,
-      `  - Include \`agent:\` and \`argument-hint:\` in frontmatter.`,
-      `  - Route to all agents: ${plan.agents.map((a) => `@${a.title}`).join(", ")}`,
-      ``,
-    );
-  }
-
-  // copilot-instructions.md
-  sections.push(
-    `### Global Workspace Instructions`,
-    `Create: \`.github/copilot-instructions.md\``,
-    `Brief project overview, architecture, agent references, key conventions. Keep <50 lines.`,
-    `Do NOT duplicate per-agent instruction content.`,
-    ``,
-  );
-
-  // Optional hooks/mcp/workflow
-  if (plan.hooks) {
-    sections.push(
-      `**Hook config** — Create: \`.github/hooks/${plan.hooks.slug}.json\` with companion scripts`,
-      `Events: ${plan.hooks.events.join(", ")}. Purpose: "${plan.hooks.description}"`,
-      ``,
-    );
-  }
-  if (plan.mcp) {
-    sections.push(
-      `**MCP config** — Create: \`.vscode/mcp.json\``,
-      `Servers: ${plan.mcp.servers.join(", ")}. Purpose: "${plan.mcp.description}"`,
-      ``,
-    );
-  }
-  if (plan.workflow) {
-    sections.push(
-      `**Workflow file** — Create: \`.github/workflows/${plan.workflow.slug}.md\``,
-      `Trigger: ${plan.workflow.trigger}. Purpose: "${plan.workflow.description}"`,
-      ``,
-    );
-  }
-
-  sections.push(
-    `## Execution Rules`,
-    `- Create ALL artifact files directly. Do NOT attempt to delegate to sub-agents.`,
-    `- Content must be specific to the use case — NO generic placeholders or "follow best practices" filler.`,
-    `- Use the EXACT file paths, names, roles, and responsibilities from this plan.`,
-    `- Do NOT ask clarifying questions — make decisions based on the plan.`,
-    `- Stop after all files are written. Do NOT run validation or review.`,
-  );
-
-  return sections.join("\n");
-}
-
-// ─── Fleet Orchestration Prompt Builder (Turbo mode) ───
+// ─── Fleet Orchestration Prompt Builder ───
 
 /**
  * Build a fleet orchestration prompt from a parsed GenerationPlan.
@@ -678,6 +492,7 @@ export function buildOrchestrationPromptFromPlan(
 export function buildFleetOrchestrationPrompt(
   plan: GenerationPlan,
   mode: GenerationMode,
+  selectedModel?: string,
 ): string {
   const refs = loadReferenceExamples();
   const sections: string[] = [];
@@ -688,6 +503,19 @@ export function buildFleetOrchestrationPrompt(
     ``,
     `Generate VS Code-compatible Copilot customization files using specialized writer subagents.`,
     `Each task below should be delegated to its designated @agent in parallel.`,
+    `Each subagent operates in its **own context window** — all context it needs is included in its task section plus the Plan Overview above.`,
+    ``,
+    `## Parallelization`,
+    `Tasks 1–4 (and optional Tasks 6–8) are **fully independent** — run them ALL simultaneously.`,
+    `Task 5 (Global Instructions) must run **last**, after all other tasks complete.`,
+    `Do NOT wait for one task to finish before starting the next (except Task 5).`,
+    ``,
+    ...(selectedModel ? [
+      `## Model`,
+      `All subagents MUST use **${selectedModel}**. When delegating each task, specify: "Use ${selectedModel}".`,
+      `By default subagents use a low-cost model — you MUST explicitly set the model to override this.`,
+      ``,
+    ] : []),
     ``,
     `## Use Case`,
     `"${plan.description}"`,
@@ -733,8 +561,8 @@ export function buildFleetOrchestrationPrompt(
   if (plan.agents.length > 0) {
     sections.push(
       `---`,
-      `## Task 1: Create Agent Files`,
-      `Use @forge-agent-writer to create all agent files.`,
+      `## Task 1: Create Agent Files (parallel — no dependencies)`,
+      `Use @forge-agent-writer to create all agent files.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
       ``,
       VSCODE_AGENT_SPEC,
       ``,
@@ -765,14 +593,15 @@ export function buildFleetOrchestrationPrompt(
           ? `- Tools: ${a.category === "general" && a.responsibilities.some((r: string) => /review|security|audit/i.test(r)) ? "read, search" : "read, edit, search, execute"}`
           : `- Tools: read, edit, search, execute, todo`;
 
+      const otherAgents = plan.agents.filter((o) => o.name !== a.name);
       const handoffLine = plan.agents.length > 1 && a.agentRole !== "orchestrator" && a.agentRole !== "subagent"
-        ? `- Handoffs: add handoffs to other agents: ${plan.agents.filter((o) => o.name !== a.name).map((o) => o.name).join(", ")}`
+        ? `- Handoffs: add handoffs to these agents. The \`agent:\` value MUST be the target agent's \`name\` field value (NOT the filename slug):\n${otherAgents.map((o) => `    - agent: "${o.title}" ← use this EXACT string`).join("\n")}`
         : ``;
 
       sections.push(
         `### Agent: ${a.title}`,
         `- File: \`.github/agents/${a.name}.agent.md\``,
-        `- Name: "${a.title}"`,
+        `- Name: "${a.title}" (MUST use this exact value — VS Code resolves handoff references by the \`name\` field)`,
         `- Role: "${a.role}"${tech}`,
         `- Category: ${a.category}`,
         `- ApplyTo: ${a.applyToGlob}`,
@@ -790,11 +619,12 @@ export function buildFleetOrchestrationPrompt(
       );
     }
 
-    // ── Task 2: Instruction Files ──
+    // ── Task 2: Instruction Files (non-orchestrator agents only) ──
     sections.push(
       `---`,
-      `## Task 2: Create Instruction Files`,
-      `Use @forge-instruction-writer to create all instruction files.`,
+      `## Task 2: Create Instruction Files (parallel — no dependencies)`,
+      `Use @forge-instruction-writer to create instruction files for each **non-orchestrator** agent.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Do NOT create instruction files for orchestrator agents — orchestrators delegate work and never edit files directly.`,
       ``,
       VSCODE_INSTRUCTION_SPEC,
       ``,
@@ -811,6 +641,7 @@ export function buildFleetOrchestrationPrompt(
     }
 
     for (const a of plan.agents) {
+      if (a.agentRole === "orchestrator") continue;
       sections.push(
         `### Instruction: ${a.title}`,
         `- File: \`.github/instructions/${a.name}.instructions.md\``,
@@ -821,11 +652,12 @@ export function buildFleetOrchestrationPrompt(
       );
     }
 
-    // ── Task 3: Skill Files ──
+    // ── Task 3: Skill Files (non-orchestrator agents only) ──
     sections.push(
       `---`,
-      `## Task 3: Create Skill Files`,
-      `Use @forge-skill-writer to create all skill files.`,
+      `## Task 3: Create Skill Files (parallel — no dependencies)`,
+      `Use @forge-skill-writer to create skill files for each **non-orchestrator** agent.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
+      `Do NOT create skill files for orchestrator agents — orchestrators coordinate work and have no domain expertise.`,
       ``,
       VSCODE_SKILL_SPEC,
       ``,
@@ -842,6 +674,7 @@ export function buildFleetOrchestrationPrompt(
     }
 
     for (const a of plan.agents) {
+      if (a.agentRole === "orchestrator") continue;
       sections.push(
         `### Skill: ${a.title}`,
         `- File: \`.github/skills/${a.name}/SKILL.md\``,
@@ -857,8 +690,8 @@ export function buildFleetOrchestrationPrompt(
   if (plan.prompt) {
     sections.push(
       `---`,
-      `## Task 4: Create Prompt File`,
-      `Use @forge-prompt-writer to create the prompt file.`,
+      `## Task 4: Create Prompt File (parallel — no dependencies)`,
+      `Use @forge-prompt-writer to create the prompt file.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
       ``,
       VSCODE_PROMPT_SPEC,
       ``,
@@ -891,7 +724,7 @@ export function buildFleetOrchestrationPrompt(
 
   sections.push(
     `---`,
-    `## Task 5: Create Global Instructions`,
+    `## Task 5: Create Global Instructions (sequential — runs LAST after Tasks 1–4 complete)`,
     `Create this file directly (no subagent needed).`,
     ``,
     `### File: \`.github/copilot-instructions.md\``,
@@ -911,8 +744,8 @@ export function buildFleetOrchestrationPrompt(
   if (plan.hooks) {
     sections.push(
       `---`,
-      `## Task ${taskNum}: Create Hook Configuration`,
-      `Use @forge-hook-writer to create hook config and companion scripts.`,
+      `## Task ${taskNum}: Create Hook Configuration (parallel — no dependencies)`,
+      `Use @forge-hook-writer to create hook config and companion scripts.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
       ``,
       `- File: \`.github/hooks/${plan.hooks.slug}.json\``,
       `- Events: ${plan.hooks.events.join(", ")}`,
@@ -925,8 +758,8 @@ export function buildFleetOrchestrationPrompt(
   if (plan.mcp) {
     sections.push(
       `---`,
-      `## Task ${taskNum}: Create MCP Configuration`,
-      `Use @forge-mcp-writer to create MCP server config.`,
+      `## Task ${taskNum}: Create MCP Configuration (parallel — no dependencies)`,
+      `Use @forge-mcp-writer to create MCP server config.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
       ``,
       `- File: \`.vscode/mcp.json\``,
       `- Servers: ${plan.mcp.servers.join(", ")}`,
@@ -939,8 +772,8 @@ export function buildFleetOrchestrationPrompt(
   if (plan.workflow) {
     sections.push(
       `---`,
-      `## Task ${taskNum}: Create Agentic Workflow`,
-      `Use @forge-workflow-writer to create the workflow file.`,
+      `## Task ${taskNum}: Create Agentic Workflow (parallel — no dependencies)`,
+      `Use @forge-workflow-writer to create the workflow file.${selectedModel ? ` Use ${selectedModel}.` : ``}`,
       ``,
       `- File: \`.github/workflows/${plan.workflow.slug}.md\``,
       `- Trigger: ${plan.workflow.trigger}`,
@@ -955,7 +788,10 @@ export function buildFleetOrchestrationPrompt(
     `---`,
     `## Execution Rules`,
     `- Delegate each numbered Task to its designated @agent subagent.`,
-    `- Tasks are independent — run them in parallel where possible.`,
+    `- **Tasks 1–4 and optional Tasks 6–8 are fully independent** — run them ALL simultaneously.`,
+    `- **Task 5 depends on Tasks 1–4** — it must run after all writer tasks complete.`,
+    `- Each subagent has its own context window. The Plan Overview above provides shared context.`,
+    `- Do NOT wait for one task to finish before starting another (except Task 5).`,
     `- Each subagent creates ONLY the files listed in its task.`,
     `- Content must be specific to the use case — NO generic placeholders.`,
     `- Use the EXACT file paths, names, roles, and responsibilities from the Plan Overview.`,
@@ -1073,7 +909,7 @@ function buildAgentWriterPrompt(
     sections.push(
       `### Agent: ${a.title}`,
       `- File path: \`.github/agents/${a.name}.agent.md\``,
-      `- Name: "${a.title}"`,
+      `- Name: "${a.title}" (MUST use this exact value — VS Code resolves handoff references by the \`name\` field)`,
       `- Role: "${a.role}"${tech}`,
       `- Category: ${a.category}`,
       `- ApplyTo: ${a.applyToGlob}`,
@@ -1082,7 +918,7 @@ function buildAgentWriterPrompt(
       `- Tools: read, edit, search, execute, todo`,
       `- MUST include: \`argument-hint\`, \`user-invocable: true\``,
       plan.agents.length > 1
-        ? `- Handoffs: add handoffs to other agents: ${plan.agents.filter((o) => o.name !== a.name).map((o) => o.name).join(", ")}`
+        ? `- Handoffs: add handoffs to these agents. The \`agent:\` value MUST be the target agent's \`name\` field value (NOT the filename slug):\n${plan.agents.filter((o) => o.name !== a.name).map((o) => `    - agent: "${o.title}" ← use this EXACT string`).join("\n")}`
         : ``,
       ``,
     );

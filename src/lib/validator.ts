@@ -192,6 +192,12 @@ export async function postGenerationValidateAndFix(
     }
   }
 
+  // Phase 1b: Cross-file handoff fix — ensure handoff agent: values match target name: fields
+  const agentsDir = path.join(githubDir, "agents");
+  if (await fs.pathExists(agentsDir)) {
+    await autoFixHandoffReferences(agentsDir);
+  }
+
   // Phase 2: Validate after fixes
   return validateDirectory(targetDir);
 }
@@ -281,10 +287,60 @@ async function autoFixFile(
     modified = true;
   }
 
+
+
   if (modified) {
     const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
     const newContent = `---\n${yamlStr}\n---\n${body}`;
     await fs.writeFile(filePath, newContent);
+  }
+}
+
+/**
+ * Cross-file handoff fix: ensure handoff agent: values match target agent's name: field.
+ * The LLM often uses filename slugs (e.g., "fastapi") instead of the name field value
+ * (e.g., "FastAPI FinOps Service"). This pass corrects those references.
+ */
+async function autoFixHandoffReferences(agentsDir: string): Promise<void> {
+  const files = (await fs.readdir(agentsDir)).filter((f) => f.endsWith(".agent.md"));
+  if (files.length < 2) return;
+
+  // Build slug → name mapping from all agent files
+  const slugToName = new Map<string, string>();
+  for (const file of files) {
+    const filePath = path.join(agentsDir, file);
+    const content = await fs.readFile(filePath, "utf-8");
+    const { frontmatter } = parseFrontmatter(content);
+    if (!frontmatter?.name) continue;
+    const slug = file.replace(".agent.md", "");
+    const name = frontmatter.name as string;
+    if (slug !== name) {
+      slugToName.set(slug, name);
+    }
+  }
+
+  if (slugToName.size === 0) return;
+
+  // Fix handoff references in each agent file
+  for (const file of files) {
+    const filePath = path.join(agentsDir, file);
+    const content = await fs.readFile(filePath, "utf-8");
+    const { frontmatter, body } = parseFrontmatter(content);
+    if (!frontmatter || !Array.isArray(frontmatter.handoffs)) continue;
+
+    let modified = false;
+    for (const handoff of frontmatter.handoffs as Array<Record<string, unknown>>) {
+      if (typeof handoff.agent === "string" && slugToName.has(handoff.agent)) {
+        handoff.agent = slugToName.get(handoff.agent)!;
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
+      const newContent = `---\n${yamlStr}\n---\n${body}`;
+      await fs.writeFile(filePath, newContent);
+    }
   }
 }
 
@@ -501,6 +557,37 @@ async function validateArtifactsInDir(
           message: `Agent "${sub.name}" has user-invocable: false but is not referenced in any orchestrator's "agents" array — it cannot be invoked`,
           field: "user-invocable",
         });
+      }
+    }
+
+    // Check handoff agent references point to existing agents (by name field, not filename)
+    const agentNameFields = new Map<string, string>();
+    for (const file of agentFiles) {
+      const filePath = path.join(agentsDirForXref, file);
+      const content = await fs.readFile(filePath, "utf-8");
+      const { frontmatter } = parseFrontmatter(content);
+      if (frontmatter?.name) {
+        agentNameFields.set(frontmatter.name as string, filePath);
+      }
+    }
+
+    for (const file of agentFiles) {
+      const filePath = path.join(agentsDirForXref, file);
+      const content = await fs.readFile(filePath, "utf-8");
+      const { frontmatter } = parseFrontmatter(content);
+      if (!frontmatter) continue;
+
+      if (Array.isArray(frontmatter.handoffs)) {
+        for (const handoff of frontmatter.handoffs as Array<Record<string, unknown>>) {
+          if (typeof handoff.agent === "string" && !agentNameFields.has(handoff.agent)) {
+            findings.push({
+              severity: "warning",
+              file: filePath,
+              message: `Handoff references agent "${handoff.agent}" but no agent file has name: "${handoff.agent}". The handoff agent value must match the target agent's name field exactly.`,
+              field: "handoffs",
+            });
+          }
+        }
       }
     }
   }

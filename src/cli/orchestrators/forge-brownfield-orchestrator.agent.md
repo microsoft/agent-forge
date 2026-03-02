@@ -80,7 +80,7 @@ user-invocable: true
 disable-model-invocation: false
 handoffs:                               # Include for flat multi-agent setups (not orchestrators)
   - label: "Hand off to Backend"
-    agent: "express"                    # Use the target agent identifier (kebab-case name), not display title
+    agent: "Express API Server"         # MUST match target agent's name field exactly
     prompt: "Continue working on the backend for this task."
     send: false
 ---
@@ -145,7 +145,9 @@ After all files are created, create `.github/copilot-instructions.md` with:
 - ACTUAL conventions found in the codebase
 - Keep under 50 lines
 
-## Rules
+## Rules (Standard Mode — when NOT using /fleet)
+
+These rules apply when operating in standard (non-fleet) mode. In fleet mode, delegate to subagents instead.
 
 - Create ALL artifact files directly — do NOT attempt to delegate to sub-agents
 - ALWAYS read actual source files before creating each artifact

@@ -17,11 +17,21 @@ If the orchestrator's prompt mentions **"existing project"** or **"existing code
 2. Base responsibilities on patterns you find (not generic templates)
 3. Reference actual frameworks, libraries, and conventions from the code
 
+## Critical Naming Rule
+
+VS Code resolves handoff `agent:` references by matching against the target agent's `name:` field in frontmatter.
+The `name:` field and handoff `agent:` values **MUST be consistent** — use the EXACT same string.
+
+- Agent A has `name: "FastAPI Backend"` → Agent B's handoff: `agent: "FastAPI Backend"` ✅
+- Agent A has `name: "FastAPI Backend"` → Agent B's handoff: `agent: "fastapi"` ❌ (won't resolve)
+
+When the prompt specifies agent names, use those **exact values** for both the `name:` field and handoff `agent:` references.
+
 ## Agent File Format
 
 ```yaml
 ---
-name: "Display Name"
+name: "Agent Display Name"             # The prompt specifies the exact name to use
 description: "Specific one-sentence purpose"
 argument-hint: "[component or feature] [requirements]"
 tools:
@@ -33,7 +43,7 @@ user-invocable: true
 disable-model-invocation: false
 handoffs:                               # Include for multi-agent setups
   - label: "Hand off to Backend"
-    agent: "express"                    # Use the target agent identifier (kebab-case name), not display title
+    agent: "Express API Server"         # MUST match target agent's name field EXACTLY
     prompt: "Continue working on the backend for this task."
     send: false
 ---

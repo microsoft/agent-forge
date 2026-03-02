@@ -1,17 +1,16 @@
 import chalk from "chalk";
 import ora from "ora";
-import { select } from "@inquirer/prompts";
 import {
   prepareGenerationWorkspace,
   installGeneratedArtifacts,
   cleanupGenerationWorkspace,
   readPlanFile,
   prepareWorkspaceForPlan,
+  injectModelIntoWriterAgents,
 } from "../lib/scaffold.js";
 import {
   launchCopilotCli,
   selectModel,
-  getModelMultiplier,
   formatDuration,
   formatTokens,
   aggregateCliOutputs,
@@ -19,22 +18,29 @@ import {
 import type { CliOutput } from "../lib/copilot-cli.js";
 import {
   buildPlanningPrompt,
-  buildOrchestrationPromptFromPlan,
   buildFleetOrchestrationPrompt,
 } from "../lib/prompt-builder.js";
 import { animateLogo } from "./init.js";
 import { postGenerationValidateAndFix } from "../lib/validator.js";
 import path from "path";
-import type { GenerateOptions, SpeedStrategy } from "../types.js";
+import type { GenerateOptions } from "../types.js";
 
 /** Strip ANSI escape codes to get visual length */
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-/** Pad a string to a visual width, accounting for ANSI escape codes */
+/** Count extra visual columns for wide characters (emoji, CJK, etc.) */
+function extraVisualWidth(str: string): number {
+  const emojiPattern = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1FA00}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}\u26a1]/gu;
+  const matches = str.match(emojiPattern);
+  return matches ? matches.length : 0;
+}
+
+/** Pad a string to a visual width, accounting for ANSI escape codes and wide characters */
 function vpad(str: string, width: number): string {
-  const visual = stripAnsi(str).length;
+  const plain = stripAnsi(str);
+  const visual = plain.length + extraVisualWidth(plain);
   return str + " ".repeat(Math.max(0, width - visual));
 }
 
@@ -111,21 +117,12 @@ export async function generateCommand(
     // Prepare workspace directories for Phase 2
     await prepareWorkspaceForPlan(tempDir, plan);
 
-    // Speed selection (after planning so agent count is known for accurate PRU)
-    const multiplier = getModelMultiplier(model);
-    const speed: SpeedStrategy = options.speed ?? await select<SpeedStrategy>({
-      message: "Generation speed:",
-      choices: [
-        { value: "standard" as SpeedStrategy, name: `Standard  ${chalk.dim(`— single session, ~${2 * multiplier} PRU`)}` },
-        { value: "turbo" as SpeedStrategy, name: `Turbo     ${chalk.dim(`— fleet mode, parallel subagents, ~${(plan.agents.length + 1) * multiplier} PRU`)} ${chalk.hex("#FFD700")("⚡")}` },
-      ],
-      default: "standard",
-    });
+    // Inject user-selected model into writer agents so /fleet subagents use it instead of the low-cost default
+    await injectModelIntoWriterAgents(tempDir, model);
 
-    // Phase 2: Generate artifacts
+    // Phase 2: Generate artifacts (fleet mode — parallel subagents)
     console.log();
-    const speedLabel = speed === "turbo" ? "Turbo ⚡" : "Standard";
-    console.log(chalk.hex("#FF8C00").bold(`  ── Phase 2 · Generating (${speedLabel}) ` + "─".repeat(Math.max(0, 25 - speedLabel.length))));
+    console.log(chalk.hex("#FF8C00").bold(`  ── Phase 2 · Generating (Fleet ⚡) ` + "─".repeat(14)));
 
     let exitCode: number;
     const phase2Start = Date.now();
@@ -135,31 +132,20 @@ export async function generateCommand(
       writers: [],
     };
 
-    if (speed === "turbo") {
-      // Turbo: single session with /fleet — Copilot CLI delegates to writer subagents in parallel
-      const fleetPrompt = buildFleetOrchestrationPrompt(plan, mode);
-      console.log(chalk.hex("#555555")("  │ ") + chalk.hex("#FF8C00")("Mode      ") + chalk.white("Fleet (parallel subagents)"));
-      console.log();
+    // Fleet: single session with /fleet — Copilot CLI delegates to writer subagents in parallel
+    const fleetPrompt = buildFleetOrchestrationPrompt(plan, mode, model);
+    console.log(chalk.hex("#555555")("  │ ") + chalk.hex("#FF8C00")("Mode      ") + chalk.white("Fleet (parallel subagents)"));
+    console.log();
 
-      const fleetOutput = await launchCopilotCli(tempDir, fleetPrompt, {
-        model,
-        agent: "forge-greenfield-orchestrator",
-        maxContinues: 25,
-        fleet: true,
-      });
-      writerDurationMs = fleetOutput.sessionTimeMs || 0;
-      phaseOutputs.orchestrator = fleetOutput;
-      exitCode = fleetOutput.exitCode;
-    } else {
-      // Standard: single orchestrator process with sequential sub-agent delegation
-      console.log(chalk.hex("#555555")("  │ ") + chalk.hex("#FF8C00")("Session   ") + chalk.white("Single orchestrator"));
-      console.log();
-
-      const orchPrompt = buildOrchestrationPromptFromPlan(plan, mode);
-      const orchOutput = await launchCopilotCli(tempDir, orchPrompt, { model, agent: "forge-greenfield-orchestrator" });
-      phaseOutputs.orchestrator = orchOutput;
-      exitCode = orchOutput.exitCode;
-    }
+    const fleetOutput = await launchCopilotCli(tempDir, fleetPrompt, {
+      model,
+      agent: "forge-greenfield-orchestrator",
+      maxContinues: 25,
+      fleet: true,
+    });
+    writerDurationMs = fleetOutput.sessionTimeMs || 0;
+    phaseOutputs.orchestrator = fleetOutput;
+    exitCode = fleetOutput.exitCode;
 
     const phase2Duration = Date.now() - phase2Start;
 
@@ -196,8 +182,7 @@ export async function generateCommand(
       const totalOutput = aggregateCliOutputs(allOutputs);
 
       const totalPru = totalOutput.premiumRequests;
-      const estimatedPru = (speed === "turbo" ? plan.agents.length + 1 : 2) * multiplier;
-      const pruLabel = totalPru > 0 ? `${totalPru} PRU` : `~${estimatedPru} PRU`;
+      const pruLabel = totalPru > 0 ? `${totalPru} PRU` : `~2 PRU`;
 
       // Per-phase breakdown table
       const boxWidth = 57;
@@ -213,22 +198,12 @@ export async function generateCommand(
       const planTokens = formatTokens(planOutput.tokenBreakdown) || chalk.dim("–");
       console.log(bc("  │") + `  ${vpad(chalk.white("Planning"), 16)}${vpad(chalk.cyan(planDurStr), 12)}${vpad(String(planPru), 8)}${vpad(String(planTokens), 19)}` + bc("│"));
 
-      if (speed === "turbo") {
-        if (phaseOutputs.orchestrator) {
-          const oOut = phaseOutputs.orchestrator;
-          const oDur = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
-          const oPru = oOut.premiumRequests > 0 ? chalk.white(String(oOut.premiumRequests)) : chalk.dim("–");
-          const oTokens = formatTokens(oOut.tokenBreakdown) || chalk.dim("–");
-          console.log(bc("  │") + `  ${vpad(chalk.hex("#FFD700")("Fleet ⚡"), 16)}${vpad(chalk.cyan(oDur), 12)}${vpad(String(oPru), 8)}${vpad(String(oTokens), 19)}` + bc("│"));
-        }
-      } else {
-        if (phaseOutputs.orchestrator) {
-          const oOut = phaseOutputs.orchestrator;
-          const oDur = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
-          const oPru = oOut.premiumRequests > 0 ? chalk.white(String(oOut.premiumRequests)) : chalk.dim("–");
-          const oTokens = formatTokens(oOut.tokenBreakdown) || chalk.dim("–");
-          console.log(bc("  │") + `  ${vpad(chalk.white("Generation"), 16)}${vpad(chalk.cyan(oDur), 12)}${vpad(String(oPru), 8)}${vpad(String(oTokens), 19)}` + bc("│"));
-        }
+      if (phaseOutputs.orchestrator) {
+        const oOut = phaseOutputs.orchestrator;
+        const oDur = oOut.apiTimeMs > 0 ? formatDuration(oOut.apiTimeMs) : formatDuration(phase2Duration);
+        const oPru = oOut.premiumRequests > 0 ? chalk.white(String(oOut.premiumRequests)) : chalk.dim("–");
+        const oTokens = formatTokens(oOut.tokenBreakdown) || chalk.dim("–");
+        console.log(bc("  │") + `  ${vpad(chalk.hex("#FFD700")("Fleet ⚡"), 16)}${vpad(chalk.cyan(oDur), 12)}${vpad(String(oPru), 8)}${vpad(String(oTokens), 19)}` + bc("│"));
       }
 
       const totalDurStr = formatDuration(phase2Duration);
@@ -237,7 +212,7 @@ export async function generateCommand(
       console.log(bc("  │") + `  ${vpad(chalk.white.bold("Total"), 16)}${vpad(chalk.cyan.bold(totalDurStr), 12)}${vpad(chalk.hex("#FFD700").bold(pruLabel), 8)}${vpad(String(totalTokenStr), 19)}` + bc("│"));
       console.log(bc(`  │${" ".repeat(boxWidth)}│`));
       console.log(bc("  │") + `  ${vpad(`${chalk.dim("Files")} ${chalk.white.bold(String(installed.length))}`, 23)}${vpad(`${chalk.dim("Model")} ${chalk.white.bold(model)}`, 32)}` + bc("│"));
-      console.log(bc("  │") + `  ${vpad(`${chalk.dim("Speed")} ${chalk.white.bold(speed === "turbo" ? "Turbo (fleet)" : "Standard")}`, 55)}` + bc("│"));
+      console.log(bc("  │") + `  ${vpad(`${chalk.dim("Speed")} ${chalk.white.bold("Fleet ⚡")}`, 55)}` + bc("│"));
       console.log(bc(`  └${divider}┘`));
 
       printGeneratedFiles(plan.slug, installed);

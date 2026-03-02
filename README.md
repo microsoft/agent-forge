@@ -5,11 +5,6 @@
 </p>
 
 <p align="center">
-  <strong>AI-Native Context Kit for GitHub Copilot-Driven Development</strong><br/>
-  Generate agents, prompts, instructions, skills, hooks, MCP configs, and agentic workflows — powered by a multi-agent AI pipeline.
-</p>
-
-<p align="center">
   <a href="https://www.npmjs.com/package/@agent-forge-copilot/cli"><img src="https://img.shields.io/npm/v/@agent-forge-copilot/cli?color=orange" alt="npm version"/></a>
   <a href="https://github.com/microsoft/agent-forge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/microsoft/agent-forge" alt="license"/></a>
 </p>
@@ -364,56 +359,3 @@ forge init / generate
                                         ▼
                                   Install to .github/
 ```
-
----
-
-## Contributing
-
-```bash
-git clone https://github.com/microsoft/agent-forge.git
-cd agent-forge
-npm install
-npm run build
-node dist/index.js init --help
-```
-
-<details>
-<summary><strong>Project structure</strong></summary>
-
-```
-src/
-├── index.ts                 # CLI entry point (Commander)
-├── types.ts                 # Shared TypeScript types
-├── commands/                # CLI command handlers
-│   ├── init.ts              # forge init — interactive wizard
-│   ├── generate.ts          # forge generate — direct AI generation
-│   ├── list.ts              # forge list — show installed & gallery
-│   ├── validate.ts          # forge validate — quality checks
-│   └── check.ts             # forge check — prerequisites
-├── lib/                     # Core libraries
-│   ├── copilot-cli.ts       # Copilot CLI orchestration & fleet mode
-│   ├── detector.ts          # Workspace tech stack detection
-│   ├── domain-registry.ts   # Domain pattern matching & decomposition
-│   ├── gallery.ts           # Built-in template registry
-│   ├── merger.ts            # Smart merge for existing .github/ files
-│   ├── prerequisites.ts     # Prerequisite checking
-│   ├── prompt-builder.ts    # Prompt construction with reference examples
-│   ├── scaffold.ts          # Workspace setup & file installation
-│   └── validator.ts         # YAML validation, tool name checks & auto-fix
-├── cli/                     # Multi-agent pipeline definitions
-│   ├── planners/            # Plan-phase agents
-│   ├── orchestrators/       # Execution-phase agents
-│   ├── writers/             # 7 specialized writer agents
-│   └── reference/           # Format specifications
-└── template/                # Gallery template files
-
-assets/                      # Branding (SVG logos)
-scripts/
-└── copy-assets.mjs          # Build helper
-```
-
-</details>
-
-## License
-
-MIT
