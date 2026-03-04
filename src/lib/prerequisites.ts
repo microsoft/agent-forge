@@ -31,7 +31,7 @@ function installHint(tool: string): string {
       if (isLinux) return "See https://nodejs.org/en/download";
       return "See https://nodejs.org/en/download";
     case "copilot":
-      return "npm install -g @github/copilot";
+      return "npm install -g @github/copilot  (must be a global install)";
     case "git":
       if (isMac) return "xcode-select --install";
       if (isLinux) return "sudo apt install git";

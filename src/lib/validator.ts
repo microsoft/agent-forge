@@ -215,9 +215,49 @@ async function autoFixFile(
   type: ArtifactType,
 ): Promise<void> {
   const content = await fs.readFile(filePath, "utf-8");
-  const { frontmatter, body } = parseFrontmatter(content);
+  let { frontmatter, body } = parseFrontmatter(content);
 
-  if (!frontmatter) return;
+  // Reconstruct missing frontmatter from filename and artifact type
+  if (!frontmatter) {
+    const baseName = path.basename(filePath);
+    const slug = baseName
+      .replace(/\.(agent|prompt|instructions)\.md$/, "")
+      .replace(/^SKILL\.md$/, "");
+    const name = slug
+      ? autoFixSlugToTitle(slug)
+      : path.basename(path.dirname(filePath)); // skill dirs: .github/skills/<name>/SKILL.md
+
+    frontmatter = { name } as Record<string, unknown>;
+
+    if (type === "agent") {
+      frontmatter.description = `${name} development agent`;
+    } else if (type === "instruction") {
+      frontmatter.description = `Coding standards for ${name} — auto-applied to matching files`;
+      // Infer applyTo from file name
+      const lower = name.toLowerCase();
+      if (/react|frontend|next|vue|angular|svelte|tailwind|css/.test(lower)) {
+        frontmatter.applyTo = "**/*.{ts,tsx,js,jsx,css,scss}";
+      } else if (/python|fastapi|django|flask|langchain/.test(lower)) {
+        frontmatter.applyTo = "**/*.py";
+      } else if (/dotnet|\.net|csharp/.test(lower)) {
+        frontmatter.applyTo = "**/*.{cs,csproj}";
+      } else {
+        frontmatter.applyTo = "**/*";
+      }
+    } else if (type === "prompt") {
+      const firstHeading = body.match(/^#\s+(.+)$/m)?.[1];
+      frontmatter.description = firstHeading || `${name} prompt`;
+    } else {
+      // skill
+      const firstHeading = body.match(/^#\s+(.+)$/m)?.[1];
+      frontmatter.description = firstHeading || `${name} domain knowledge`;
+    }
+
+    const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
+    const newContent = `---\n${yamlStr}\n---\n${body}`;
+    await fs.writeFile(filePath, newContent);
+    return;
+  }
 
   const validFields = VALID_FIELDS[type];
   if (!validFields) return;
@@ -798,6 +838,7 @@ async function validateFile(
       severity: "error",
       file: filePath,
       message: "Missing YAML frontmatter (must start with ---)",
+      fixable: true,
     });
     return;
   }
@@ -1102,14 +1143,16 @@ function parseFrontmatter(content: string): {
   frontmatter: Record<string, unknown> | null;
   body: string;
 } {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return { frontmatter: null, body: content };
+  // Normalize: strip optional BOM and convert \r\n → \n
+  const normalized = content.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return { frontmatter: null, body: normalized };
 
   try {
     const frontmatter = YAML.parse(match[1]) as Record<string, unknown>;
     return { frontmatter, body: match[2] };
   } catch {
-    return { frontmatter: null, body: content };
+    return { frontmatter: null, body: normalized };
   }
 }
 

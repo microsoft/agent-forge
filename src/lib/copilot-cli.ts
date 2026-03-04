@@ -45,39 +45,65 @@ export function buildShellCommand(cmd: string, args: string[]): string {
 let _copilotCliInstalled: boolean | undefined;
 
 /**
+ * Try to extract a version string from the output of a command.
+ * Returns the version string or null if extraction fails.
+ */
+function tryExecVersion(command: string): string | null {
+  try {
+    const output = execSync(command, {
+      encoding: "utf-8",
+      timeout: 10_000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    const match = output.match(/(\d+\.\d+[\d.]*)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if the GitHub Copilot CLI (`copilot`) binary is available.
  * Result is cached for the process lifetime.
  */
 export function isCopilotCliInstalled(): boolean {
   if (_copilotCliInstalled !== undefined) return _copilotCliInstalled;
-  try {
-    execSync("copilot --version", {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    _copilotCliInstalled = true;
-  } catch {
-    _copilotCliInstalled = false;
-  }
+  _copilotCliInstalled = getCopilotCliVersion() !== null;
   return _copilotCliInstalled;
 }
 
 /**
  * Get the installed Copilot CLI version string, or null if not installed.
+ *
+ * Detection strategy (first match wins):
+ *   1. `copilot --version`            — global install on PATH
+ *   2. `npx --no-install copilot --version` — locally-installed package
+ *   3. `npm list -g @github/copilot`  — globally installed but binary not on PATH
  */
 export function getCopilotCliVersion(): string | null {
+  // Strategy 1: direct binary on PATH
+  const direct = tryExecVersion("copilot --version");
+  if (direct) return direct;
+
+  // Strategy 2: locally-installed via npm (e.g. npm install @github/copilot --save)
+  const npxLocal = tryExecVersion("npx --no-install copilot --version");
+  if (npxLocal) return npxLocal;
+
+  // Strategy 3: globally installed but binary not resolved on PATH
   try {
-    const output = execSync("copilot --version", {
+    const npmList = execSync("npm list -g @github/copilot --depth=0 --json", {
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: 10_000,
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
-    const match = output.match(/(\d+\.\d+[\d.]*)/);
-    return match ? match[1] : output.slice(0, 30);
+    const parsed = JSON.parse(npmList) as { dependencies?: Record<string, { version?: string }> };
+    const ver = parsed?.dependencies?.["@github/copilot"]?.version;
+    if (ver) return ver;
   } catch {
-    return null;
+    // not found via npm list
   }
+
+  return null;
 }
 
 /** Available models ordered by speed (fastest first) */
