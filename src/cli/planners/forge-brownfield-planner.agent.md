@@ -134,10 +134,22 @@ After deciding agent count, decide how agents relate:
 | Condition | Pattern | Structure |
 |-----------|---------|----------|
 | 1-2 agents OR simple project | **`flat`** (default) | Peer agents with optional handoffs |
-| ≥3 agents + keywords: "review", "quality", "audit", "multi-perspective" | **`multi-perspective`** | Orchestrator + specialized reviewer subagents |
-| ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator + red/green/refactor subagents |
+| ≥3 agents + keywords: "review", "quality", "audit", "compliance", "multi-perspective" | **`multi-perspective`** | Orchestrator dispatches same input to parallel specialist reviewers; synthesizer merges findings |
+| ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator enforces strict Red → Green → Refactor per testable unit |
 | ≥3 agents + keywords: "plan", "research", "workflow", "coordinate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
-| ≥3 agents + clear dependency chain (plan → implement → review) | **`pipeline`** | Pipeline orchestrator + sequential stage subagents |
+| ≥3 agents + clear sequential dependency chain (stage A → stage B → stage C), "pipeline", "sequential", "stages" | **`pipeline`** | Pipeline orchestrator sends output of stage N to stage N+1; each stage has defined input/output contract |
+| 2+ agents + keywords: "iterate", "improve until", "quality threshold", "feedback loop", "progressive refinement" | **`iteration`** | Iteration coordinator loops between implementer and quality gate until acceptance threshold is met |
+
+### Pattern Selection Decision Tree
+
+Use this decision tree to select the right pattern — evaluate in order:
+
+1. **Is there a clear sequential dependency chain** where each stage transforms the previous stage's output? → **`pipeline`**
+2. **Do multiple specialists independently analyze the SAME input** from different perspectives? → **`multi-perspective`**
+3. **Is the workflow explicitly test-first** with red/green/refactor cycles? → **`tdd`**
+4. **Does the task require iterative improvement** with a quality gate scoring each attempt? → **`iteration`**
+5. **Are there 3+ agents spanning multiple languages or runtime environments?** → **`coordinator-worker`**
+6. **Otherwise** → **`flat`**
 
 **When pattern ≠ `flat`:**
 
@@ -156,6 +168,16 @@ After deciding agent count, decide how agents relate:
 **Note**: Don't create an orchestrator for ≤2 agents UNLESS the planning prompt includes a "Agent Design Pattern Override: SUBAGENT" section. When the user explicitly requests the subagent pattern, always create a coordinator even with 2 workers.
 
 3. **Orchestrator NEVER writes code** — delegates ALL implementation
+
+### Pattern-Specific Orchestrator Behavior
+
+When using a non-flat pattern, the orchestrator's responsibilities and workflow differ by pattern:
+
+- **Pipeline orchestrators**: Enforce sequential stage execution (A → B → C). Validate each stage's output meets a minimum quality bar before forwarding. Can re-invoke a failed stage with additional context. Each stage has a defined input/output contract.
+- **Multi-perspective orchestrators**: Dispatch the SAME input to all specialist subagents simultaneously. Ensure reviewers work independently (no cross-contamination). A synthesizer/reporter merges findings using scoring (e.g., traffic-light 🔴🟡🟢 or 1-10) and resolves conflicting assessments.
+- **TDD orchestrators**: Enforce strict Red → Green → Refactor ordering per testable unit. Verify test state between stages. Iterate the cycle for each testable unit.
+- **Iteration orchestrators**: Loop between implementer and quality gate. Quality gate scores against criteria (PASS/REVISE). Forward specific feedback on REVISE. Max 5 iterations. Escalate on plateau.
+- **Coordinator-worker orchestrators**: Decompose tasks, delegate to specialists, validate results, iterate until acceptance criteria met.
 
 4. **Brownfield-specific**: If existing agents have `agents` property, avoid creating conflicting orchestration hierarchies. Extend existing orchestrators rather than creating competing ones.
 

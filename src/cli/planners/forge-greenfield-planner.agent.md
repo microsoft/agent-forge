@@ -59,10 +59,25 @@ After deciding agent count, determine how agents should relate to each other:
 | ≥3 agents + separate runtime environments (e.g., frontend server + backend API + AI/ML service) | **`coordinator-worker`** | Coordinator + specialized worker subagents |
 | ≥3 agents + keywords: "microservice", "multi-service", "distributed", "orchestrate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
 | ≥3 agents + keywords: "plan", "research", "workflow", "coordinate" | **`coordinator-worker`** | Coordinator + specialized worker subagents |
-| ≥3 agents + keywords: "review", "quality", "audit", "multi-perspective" | **`multi-perspective`** | Orchestrator + specialized reviewer subagents |
-| ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator + red/green/refactor subagents |
-| ≥3 agents + clear dependency chain (plan → implement → review) | **`pipeline`** | Pipeline orchestrator + sequential stage subagents |
+| ≥3 agents + keywords: "review", "quality", "audit", "compliance", "multi-perspective" | **`multi-perspective`** | Orchestrator dispatches same input to parallel specialist reviewers; synthesizer merges findings |
+| ≥3 agents + keywords: "TDD", "test-driven", "red green refactor" | **`tdd`** | TDD Coordinator enforces strict Red → Green → Refactor per testable unit |
+| ≥3 agents + clear sequential dependency chain (stage A → stage B → stage C), "pipeline", "sequential", "stages" | **`pipeline`** | Pipeline orchestrator sends output of stage N to stage N+1; each stage has defined input/output contract |
+| 2+ agents + keywords: "iterate", "improve until", "quality threshold", "feedback loop", "progressive refinement" | **`iteration`** | Iteration coordinator loops between implementer and quality gate until acceptance threshold is met |
 | Otherwise | **`flat`** | Current behavior — all agents are peer-level |
+
+### Pattern Selection Decision Tree
+
+Use this decision tree to select the right pattern — evaluate in order:
+
+1. **Is there a clear sequential dependency chain** where each stage transforms the previous stage's output? → **`pipeline`**
+   - Example: "research → outline → write → edit" or "extract → analyze → advise → report"
+2. **Do multiple specialists independently analyze the SAME input** from different perspectives? → **`multi-perspective`**
+   - Example: "security audit + license review + documentation assessment on the same codebase"
+3. **Is the workflow explicitly test-first** with red/green/refactor cycles? → **`tdd`**
+4. **Does the task require iterative improvement** with a quality gate scoring each attempt? → **`iteration`**
+   - Example: "improve until quality threshold is met" or "revise based on feedback"
+5. **Are there 3+ agents spanning multiple languages or runtime environments?** → **`coordinator-worker`**
+6. **Otherwise** → **`flat`**
 
 **Smart Default Rule**: When you have ≥3 agents and the project spans multiple programming languages, multiple runtime environments, or has a database shared across services — **prefer `coordinator-worker` over `flat`** even if no specific keywords are present. A coordinator becomes essential when agents work across language boundaries (e.g., React/TypeScript frontend + Express/Node.js backend + FastAPI/Python AI service) because cross-stack tasks need decomposition and delegation.
 
@@ -87,6 +102,16 @@ After deciding agent count, determine how agents should relate to each other:
    - Tools appropriate for their role (e.g., implementers get `edit`/`execute`, reviewers get `read`/`search` only)
 
 3. **Orchestrator NEVER writes code** — it delegates ALL implementation to subagents
+
+### Pattern-Specific Orchestrator Behavior
+
+When using a non-flat pattern, the orchestrator's responsibilities and workflow differ by pattern:
+
+- **Pipeline orchestrators**: Enforce sequential stage execution (A → B → C). Validate each stage's output meets a minimum quality bar before forwarding to the next stage. Can re-invoke a failed stage with additional context. Each stage subagent has a defined input format it receives and output format it produces.
+- **Multi-perspective orchestrators**: Dispatch the SAME input to all specialist subagents simultaneously for parallel analysis. Ensure reviewers work independently (no cross-contamination). Collect all independent reports and send them to a synthesizer/reporter subagent that merges findings using scoring (e.g., traffic-light 🔴🟡🟢 or 1-10) and resolves conflicting assessments.
+- **TDD orchestrators**: Enforce strict Red → Green → Refactor ordering per testable unit. Verify test state between each stage: Red must produce a failing test, Green must make it pass with minimal code, Refactor must keep all tests passing. Iterate the cycle for each testable unit.
+- **Iteration orchestrators**: Loop between implementer and quality gate. The quality gate scores against acceptance criteria (PASS/REVISE verdict). On REVISE, forward the specific feedback to the implementer for targeted revision. Track iteration count (max 5) and improvement trajectory. Escalate if quality plateaus.
+- **Coordinator-worker orchestrators**: Decompose tasks into discrete work units. Delegate each unit to the appropriate specialized subagent. Validate results and iterate until acceptance criteria are met.
 
 **Anti-pattern**: Don't create an orchestrator for ≤2 agents UNLESS the planning prompt includes a "Agent Design Pattern Override: SUBAGENT" section. When the user explicitly requests the subagent pattern, always create a coordinator even with 2 workers.
 

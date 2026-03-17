@@ -211,6 +211,454 @@ const REFERENCE_PLAN = `{
   }
 }`;
 
+// ─── Reference Plan: Pipeline Pattern ───
+
+const REFERENCE_PLAN_PIPELINE = `{
+  "slug": "content-pipeline",
+  "title": "Content Creation Pipeline",
+  "description": "Content creation pipeline that takes a topic and produces a polished, SEO-optimized article through sequential agent stages",
+  "orchestrationPattern": "pipeline",
+  "agents": [
+    {
+      "name": "pipeline-coordinator",
+      "title": "Content Pipeline Coordinator",
+      "role": "Orchestrates the content creation pipeline by sending input through sequential stages and validating each stage output before forwarding to the next",
+      "category": "general",
+      "agentRole": "orchestrator",
+      "agents": ["researcher", "outliner", "writer", "editor"],
+      "userInvokable": true,
+      "disableModelInvocation": true,
+      "techStack": [],
+      "responsibilities": [
+        "Receive the topic input and send it to the researcher stage with specific research directives",
+        "Validate each stage output meets minimum quality before forwarding to the next stage",
+        "Pass the researcher's structured findings to the outliner, the outline to the writer, and the draft to the editor",
+        "Re-invoke any stage that produces insufficient output with additional context or constraints",
+        "Track pipeline progress and report the final publish-ready result to the user"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Pipeline orchestration: enforce sequential stage execution, validate stage outputs, re-invoke on quality failure. Never skip stages."
+      },
+      "skill": {
+        "description": "Content creation pipeline orchestration and sequential stage coordination. USE FOR: create article, write blog post, content pipeline, produce content, generate article, blog creation, content workflow, editorial pipeline. DO NOT USE FOR: direct writing, research, outlining, editing, code generation, non-content tasks."
+      }
+    },
+    {
+      "name": "researcher",
+      "title": "Content Researcher",
+      "role": "Gathers facts, statistics, expert perspectives, and fresh angles on the given topic",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Gather relevant facts, recent statistics, and data points for the given topic",
+        "Identify expert perspectives, contrarian viewpoints, and unique angles not covered in typical articles",
+        "Compile research into a structured brief with sections: Key Facts, Expert Quotes, Data Points, Fresh Angles",
+        "Verify claims have supporting evidence and flag any assertions that need citations"
+      ],
+      "applyToGlob": "**/*.md",
+      "instruction": {
+        "description": "Research standards: structured output format, fact verification, source attribution, comprehensive coverage."
+      },
+      "skill": {
+        "description": "Topic research, fact gathering, and structured research brief creation. USE FOR: research topic, gather facts, find statistics, expert perspectives, data points, verify claims. DO NOT USE FOR: writing articles, creating outlines, editing prose, SEO optimization."
+      }
+    },
+    {
+      "name": "outliner",
+      "title": "Content Outliner",
+      "role": "Designs the structural blueprint with sections, narrative arc, word counts, and heading hierarchy",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Design a structural blueprint with H2/H3 heading hierarchy based on the research brief",
+        "Plan the narrative arc: hook introduction, progressive revelation, compelling conclusion",
+        "Assign target word counts per section to maintain balanced coverage",
+        "Identify where code examples, data visualizations, or callout boxes should appear"
+      ],
+      "applyToGlob": "**/*.md",
+      "instruction": {
+        "description": "Outline standards: heading hierarchy, narrative arc, word count targets, placeholder locations for media."
+      },
+      "skill": {
+        "description": "Article structure design, section planning, and narrative architecture. USE FOR: create outline, plan structure, section design, heading hierarchy, narrative arc, word count planning. DO NOT USE FOR: writing full articles, researching topics, editing prose, SEO analysis."
+      }
+    },
+    {
+      "name": "writer",
+      "title": "Content Writer",
+      "role": "Drafts the complete article with consistent voice, engagement hooks, and code examples using the outline and research",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Draft the complete article following the structural outline with consistent voice and tone",
+        "Incorporate research findings naturally with proper attribution and context",
+        "Write engagement hooks: compelling opening, smooth transitions, clear takeaways per section",
+        "Include code examples, practical tips, and actionable advice where the outline indicates"
+      ],
+      "applyToGlob": "**/*.md",
+      "instruction": {
+        "description": "Writing standards: follow outline structure, incorporate research, maintain consistent voice, include engagement hooks."
+      },
+      "skill": {
+        "description": "Article drafting, prose writing, and content creation from outlines. USE FOR: write article, draft content, create prose, fill outline, write sections, compose paragraphs. DO NOT USE FOR: research, outlining, editing, SEO optimization, structural planning."
+      }
+    },
+    {
+      "name": "editor",
+      "title": "Content Editor",
+      "role": "Polishes grammar, tone, and flow, then optimizes for SEO with title, meta description, and keyword placement",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Polish grammar, punctuation, and sentence structure for clarity and readability",
+        "Ensure consistent tone, smooth transitions, and logical flow between sections",
+        "Optimize title for click-worthiness and primary keyword placement",
+        "Generate meta description (150-160 chars), identify primary keywords, and suggest internal linking opportunities"
+      ],
+      "applyToGlob": "**/*.md",
+      "instruction": {
+        "description": "Editorial standards: grammar polish, tone consistency, SEO optimization, meta description generation."
+      },
+      "skill": {
+        "description": "Editorial review, SEO optimization, and content polish. USE FOR: edit article, polish prose, fix grammar, SEO optimization, meta description, keyword analysis, readability improvement. DO NOT USE FOR: initial drafting, research, outlining, topic selection."
+      }
+    }
+  ],
+  "prompt": {
+    "slug": "content-pipeline",
+    "description": "Create a polished article by running a topic through the research → outline → write → edit pipeline"
+  }
+}`;
+
+// ─── Reference Plan: Multi-Perspective Pattern ───
+
+const REFERENCE_PLAN_MULTI_PERSPECTIVE = `{
+  "slug": "compliance-audit",
+  "title": "Codebase Compliance Audit",
+  "description": "Compliance audit system that scans a project with parallel specialist reviewers for security, licensing, documentation, and privacy, then synthesizes into a unified scorecard",
+  "orchestrationPattern": "multi-perspective",
+  "agents": [
+    {
+      "name": "compliance-coordinator",
+      "title": "Compliance Coordinator",
+      "role": "Orchestrates parallel compliance reviews by dispatching the same project scan to all specialist reviewers and synthesizing their independent findings into a unified scorecard",
+      "category": "general",
+      "agentRole": "orchestrator",
+      "agents": ["security-auditor", "license-reviewer", "docs-assessor", "compliance-reporter"],
+      "userInvokable": true,
+      "disableModelInvocation": true,
+      "techStack": [],
+      "responsibilities": [
+        "Dispatch the project scan data to all specialist reviewers simultaneously for parallel analysis",
+        "Collect independent findings from each specialist without cross-contamination between reviewers",
+        "Send all specialist reports to the compliance reporter for unified scorecard synthesis",
+        "Present the final scorecard with traffic-light ratings and prioritized action items to the user",
+        "Re-invoke any specialist that returns incomplete findings with targeted follow-up directives"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Multi-perspective orchestration: dispatch same input to all reviewers in parallel, collect independent results, synthesize via reporter. Never let reviewers see each other's findings."
+      },
+      "skill": {
+        "description": "Compliance audit orchestration and multi-perspective review coordination. USE FOR: compliance check, security audit, project audit, code review, quality assessment, multi-perspective review, compliance scan. DO NOT USE FOR: direct security analysis, license checking, documentation review, writing code."
+      }
+    },
+    {
+      "name": "security-auditor",
+      "title": "Security Auditor",
+      "role": "Analyzes project for security vulnerabilities: .env handling, hardcoded secrets, auth patterns, HTTPS enforcement, dependency risks",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Check .env handling: verify .gitignore includes .env files, scan for hardcoded secrets and API keys in source",
+        "Evaluate authentication patterns: password hashing, token management, session handling, CORS configuration",
+        "Assess HTTPS enforcement, security headers, and input validation patterns",
+        "Score security posture 1-10 with specific findings and remediation recommendations"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Security audit lens: OWASP Top 10, secrets detection, auth patterns, dependency vulnerabilities. Output structured findings with severity ratings."
+      },
+      "skill": {
+        "description": "Security vulnerability analysis and OWASP compliance checking. USE FOR: security scan, vulnerability check, secrets detection, auth audit, HTTPS check, dependency risk, OWASP review. DO NOT USE FOR: license compliance, documentation quality, privacy assessment, code implementation."
+      }
+    },
+    {
+      "name": "license-reviewer",
+      "title": "License Reviewer",
+      "role": "Evaluates LICENSE file presence, dependency license compatibility, attribution requirements, and open source obligations",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Verify LICENSE file exists and is appropriate for the project type (MIT, Apache-2.0, GPL, etc.)",
+        "Check dependency license compatibility: flag copyleft licenses in proprietary projects",
+        "Identify attribution requirements from third-party dependencies",
+        "Score license compliance 1-10 with specific findings and remediation steps"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "License audit lens: LICENSE file presence, dependency license compatibility, attribution requirements. Output structured findings with compliance ratings."
+      },
+      "skill": {
+        "description": "License compliance analysis and open source obligation checking. USE FOR: license check, dependency licenses, attribution requirements, open source compliance, copyleft detection, license compatibility. DO NOT USE FOR: security vulnerabilities, documentation quality, privacy assessment, code review."
+      }
+    },
+    {
+      "name": "docs-assessor",
+      "title": "Documentation Assessor",
+      "role": "Scores README quality, setup instructions, contributing guide, changelog, and inline documentation completeness",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Evaluate README quality: project description, installation steps, usage examples, badge presence",
+        "Check for CONTRIBUTING.md, CODE_OF_CONDUCT.md, and CHANGELOG.md presence and quality",
+        "Assess inline documentation: JSDoc/docstrings in public APIs, complex logic comments",
+        "Score documentation completeness 1-10 with specific gaps and improvement recommendations"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Documentation audit lens: README quality, guides presence, inline docs coverage. Output structured findings with completeness ratings."
+      },
+      "skill": {
+        "description": "Documentation quality assessment and completeness analysis. USE FOR: documentation check, README quality, contributing guide, changelog, inline docs, API documentation, setup instructions. DO NOT USE FOR: security analysis, license compliance, privacy assessment, code implementation."
+      }
+    },
+    {
+      "name": "compliance-reporter",
+      "title": "Compliance Reporter",
+      "role": "Synthesizes all specialist findings into a unified scorecard with traffic-light ratings, risk heatmap, and prioritized top-3 action items",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Merge findings from security, license, and documentation specialists into a unified compliance report",
+        "Generate traffic-light scorecard: Security 🔴🟡🟢, License 🔴🟡🟢, Docs 🔴🟡🟢, Overall 🔴🟡🟢",
+        "Resolve conflicting assessments by applying severity-weighted prioritization across domains",
+        "Produce prioritized top-3 action items with effort estimates and impact ratings"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Synthesis lens: merge multi-perspective findings, resolve conflicts, generate traffic-light scorecard, prioritize actions by impact."
+      },
+      "skill": {
+        "description": "Compliance report synthesis and multi-domain scorecard generation. USE FOR: generate report, synthesize findings, compliance scorecard, traffic-light rating, prioritize actions, risk heatmap. DO NOT USE FOR: security scanning, license checking, documentation review, direct code analysis."
+      }
+    }
+  ],
+  "prompt": {
+    "slug": "compliance-audit",
+    "description": "Run a multi-perspective compliance audit with parallel specialist reviewers and unified scorecard"
+  }
+}`;
+
+// ─── Reference Plan: TDD Pattern ───
+
+const REFERENCE_PLAN_TDD = `{
+  "slug": "tdd-workflow",
+  "title": "TDD Development Workflow",
+  "description": "Test-driven development workflow with red-green-refactor cycle managed by a TDD coordinator",
+  "orchestrationPattern": "tdd",
+  "agents": [
+    {
+      "name": "tdd-coordinator",
+      "title": "TDD Coordinator",
+      "role": "Orchestrates the red-green-refactor cycle by delegating to specialized stage agents in strict sequence and validating each stage's contract before proceeding",
+      "category": "general",
+      "agentRole": "orchestrator",
+      "agents": ["red-agent", "green-agent", "refactor-agent"],
+      "userInvokable": true,
+      "disableModelInvocation": true,
+      "techStack": [],
+      "responsibilities": [
+        "Receive the feature requirement and decompose it into testable units for the red stage",
+        "Delegate to the red agent first: verify it produces a failing test, then send the failing test to the green agent",
+        "Delegate to the green agent: verify the test passes with minimal code, then send both to the refactor agent",
+        "Delegate to the refactor agent: verify tests still pass after cleanup, then report the completed cycle",
+        "Iterate the red-green-refactor cycle for each testable unit until the feature is fully covered"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "TDD orchestration: enforce strict Red → Green → Refactor sequence. Never skip stages. Verify test state between stages."
+      },
+      "skill": {
+        "description": "Test-driven development orchestration and red-green-refactor cycle management. USE FOR: TDD workflow, test-driven development, red green refactor, test first development, iterative testing, TDD cycle. DO NOT USE FOR: writing tests directly, implementing code, refactoring code, code review."
+      }
+    },
+    {
+      "name": "red-agent",
+      "title": "Red Stage — Test Writer",
+      "role": "Writes a focused, failing test that captures the expected behavior before any implementation exists",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Write exactly one focused test case that captures the expected behavior for the current unit",
+        "Ensure the test fails for the RIGHT reason — it should fail because the feature doesn't exist, not due to syntax errors",
+        "Run the test to confirm it fails and capture the failure output as evidence",
+        "Report the failing test file path, the assertion that fails, and the expected vs actual output"
+      ],
+      "applyToGlob": "**/*.{test,spec}.{ts,tsx,js,jsx}",
+      "instruction": {
+        "description": "Red stage: write ONE failing test. Run it. Confirm it fails for the right reason. Report failure evidence. Never write implementation code."
+      },
+      "skill": {
+        "description": "Failing test creation for TDD red stage. USE FOR: write failing test, red stage, test first, define expected behavior, test assertion, capture failure. DO NOT USE FOR: implementing features, making tests pass, refactoring, code cleanup."
+      }
+    },
+    {
+      "name": "green-agent",
+      "title": "Green Stage — Implementer",
+      "role": "Writes the MINIMUM code needed to make the failing test pass — no more, no less",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Read the failing test to understand exactly what behavior is expected",
+        "Write the simplest possible implementation that makes the test pass — resist over-engineering",
+        "Run the test suite to verify the new test passes AND no existing tests broke",
+        "Report the implementation file path, lines added, and full test results"
+      ],
+      "applyToGlob": "**/*.{ts,tsx,js,jsx}",
+      "instruction": {
+        "description": "Green stage: write MINIMUM code to pass the test. No refactoring, no optimization, no extra features. Just make it green."
+      },
+      "skill": {
+        "description": "Minimal implementation for TDD green stage. USE FOR: make test pass, green stage, minimal implementation, pass failing test, simplest solution. DO NOT USE FOR: writing tests, refactoring, optimization, code cleanup, architectural decisions."
+      }
+    },
+    {
+      "name": "refactor-agent",
+      "title": "Refactor Stage — Code Improver",
+      "role": "Improves code quality, removes duplication, and enhances readability while keeping ALL tests green",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "model": ["Claude Sonnet 4.5 (copilot)", "Gemini 3 Flash (Preview) (copilot)"],
+      "techStack": [],
+      "responsibilities": [
+        "Review the implementation for duplication, naming clarity, and structural improvements",
+        "Refactor code to improve readability and maintainability without changing behavior",
+        "Run the full test suite after EVERY refactoring step to ensure all tests remain green",
+        "Report refactoring changes made, tests verified, and any code quality metrics improved"
+      ],
+      "applyToGlob": "**/*.{ts,tsx,js,jsx}",
+      "instruction": {
+        "description": "Refactor stage: improve code without changing behavior. Run tests after every change. If any test fails, revert immediately."
+      },
+      "skill": {
+        "description": "Code refactoring for TDD refactor stage. USE FOR: refactor code, improve readability, remove duplication, clean up, code quality, rename variables, extract functions. DO NOT USE FOR: adding features, writing new tests, changing behavior, architectural redesign."
+      }
+    }
+  ],
+  "prompt": {
+    "slug": "tdd-workflow",
+    "description": "Develop features using the test-driven red-green-refactor cycle with specialized stage agents"
+  }
+}`;
+
+// ─── Reference Plan: Iteration Pattern ───
+
+const REFERENCE_PLAN_ITERATION = `{
+  "slug": "iterative-review",
+  "title": "Iterative Quality Review",
+  "description": "Iterative review system where an implementer produces output and a quality gate scores it, looping until the quality threshold is met",
+  "orchestrationPattern": "iteration",
+  "agents": [
+    {
+      "name": "iteration-coordinator",
+      "title": "Iteration Coordinator",
+      "role": "Orchestrates iterative improvement cycles by sending work between the implementer and quality gate until the acceptance threshold is met",
+      "category": "general",
+      "agentRole": "orchestrator",
+      "agents": ["implementer", "quality-gate"],
+      "userInvokable": true,
+      "disableModelInvocation": true,
+      "techStack": [],
+      "responsibilities": [
+        "Receive the task and initial requirements, then delegate the first attempt to the implementer",
+        "Send each implementation attempt to the quality gate for scoring against acceptance criteria",
+        "If the quality gate returns a score below threshold, forward its specific feedback to the implementer for a targeted revision",
+        "Track iteration count and improvement trajectory — escalate if quality plateaus after 3 iterations",
+        "Report the final accepted result with quality scores, iteration count, and improvement history"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Iteration orchestration: implementer → quality gate → feedback loop. Max 5 iterations. Escalate on plateau. Track improvement trajectory."
+      },
+      "skill": {
+        "description": "Iterative improvement orchestration and quality convergence management. USE FOR: iterative improvement, quality loop, revision cycle, improve until threshold, feedback loop, progressive refinement, quality convergence. DO NOT USE FOR: one-shot implementation, direct code review, test writing, static analysis."
+      }
+    },
+    {
+      "name": "implementer",
+      "title": "Iterative Implementer",
+      "role": "Produces or revises work based on requirements and quality gate feedback, improving with each iteration",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "techStack": [],
+      "responsibilities": [
+        "Produce the initial implementation based on the provided requirements and specifications",
+        "On revision requests, read the quality gate's specific feedback and address each point directly",
+        "Track which feedback items were addressed and report what changed in each iteration",
+        "Maintain context across iterations — build on previous work rather than starting from scratch"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Iterative implementation: address quality feedback point-by-point. Build on previous work. Report changes per iteration."
+      },
+      "skill": {
+        "description": "Iterative implementation and revision based on structured feedback. USE FOR: implement feature, revise code, address feedback, improve implementation, iterate on solution, fix issues. DO NOT USE FOR: quality assessment, scoring, acceptance testing, review."
+      }
+    },
+    {
+      "name": "quality-gate",
+      "title": "Quality Gate Reviewer",
+      "role": "Scores each implementation attempt against acceptance criteria and provides specific, actionable feedback for improvement",
+      "category": "general",
+      "agentRole": "subagent",
+      "userInvokable": false,
+      "model": ["Claude Sonnet 4.5 (copilot)", "Gemini 3 Flash (Preview) (copilot)"],
+      "techStack": [],
+      "responsibilities": [
+        "Score the implementation against predefined acceptance criteria on a 1-10 scale per criterion",
+        "Provide specific, actionable feedback for each criterion scoring below threshold (7/10)",
+        "Compare with previous iteration scores to track improvement trajectory",
+        "Return a structured verdict: PASS (all criteria ≥7) or REVISE (with prioritized feedback list)"
+      ],
+      "applyToGlob": "**/*",
+      "instruction": {
+        "description": "Quality gate: score against criteria, provide specific feedback, track improvement. PASS threshold: all criteria ≥7/10. Output structured verdict."
+      },
+      "skill": {
+        "description": "Quality assessment, scoring, and structured feedback generation. USE FOR: quality review, score implementation, acceptance criteria, quality gate, assess quality, provide feedback, track improvement. DO NOT USE FOR: implementing features, writing code, fixing issues, direct editing."
+      }
+    }
+  ],
+  "prompt": {
+    "slug": "iterative-review",
+    "description": "Implement features with iterative quality improvement until acceptance criteria are met"
+  }
+}`;
+
 // ─── Planning Prompt Builder ───
 
 /**
@@ -358,10 +806,11 @@ export function buildPlanningPrompt(
       break;
   }
 
-  // Reference plan example — shows the LLM exactly what quality looks like
+  // Reference plan examples — shows the LLM exactly what quality looks like
   sections.push(
-    `## Reference Plan (match this quality level)`,
+    `## Reference Plans (match this quality level)`,
     ``,
+    `### Reference 1: Flat Pattern (2 agents, simple project)`,
     `For a description like "E-commerce platform with Next.js storefront and FastAPI product service":`,
     ``,
     "```json",
@@ -369,6 +818,42 @@ export function buildPlanningPrompt(
     "```",
     ``,
     `Notice: framework-based agent names, 5 tech-specific responsibilities per agent, populated techStack arrays, specific applyToGlob patterns, and rich skill descriptions with USE FOR/DO NOT USE FOR phrases.`,
+    ``,
+    `### Reference 2: Pipeline Pattern (sequential stages with input/output contracts)`,
+    `For a description like "Content creation pipeline that produces polished articles through sequential stages":`,
+    ``,
+    "```json",
+    REFERENCE_PLAN_PIPELINE,
+    "```",
+    ``,
+    `Notice: strict sequential stage order (researcher → outliner → writer → editor), each stage has a defined output format that feeds the next stage, orchestrator validates between stages and can re-invoke on quality failure.`,
+    ``,
+    `### Reference 3: Multi-Perspective Pattern (parallel specialist reviewers + synthesizer)`,
+    `For a description like "Compliance audit with parallel security, license, and documentation reviewers":`,
+    ``,
+    "```json",
+    REFERENCE_PLAN_MULTI_PERSPECTIVE,
+    "```",
+    ``,
+    `Notice: all specialists receive the SAME input, work independently in parallel (no cross-contamination), a dedicated synthesizer/reporter merges findings using traffic-light scoring and resolves conflicting assessments.`,
+    ``,
+    `### Reference 4: TDD Pattern (red-green-refactor cycle)`,
+    `For a description like "Test-driven development with red-green-refactor cycle":`,
+    ``,
+    "```json",
+    REFERENCE_PLAN_TDD,
+    "```",
+    ``,
+    `Notice: strict Red → Green → Refactor sequence enforced by coordinator, red agent writes ONE failing test, green agent writes MINIMUM code to pass, refactor agent improves without changing behavior, coordinator iterates per testable unit.`,
+    ``,
+    `### Reference 5: Iteration Pattern (implement → score → revise loop)`,
+    `For a description like "Iterative quality improvement with feedback loop until threshold is met":`,
+    ``,
+    "```json",
+    REFERENCE_PLAN_ITERATION,
+    "```",
+    ``,
+    `Notice: implementer produces output, quality gate scores against criteria (PASS/REVISE verdict), coordinator loops until all criteria ≥ threshold, tracks improvement trajectory, escalates on plateau.`,
     ``,
   );
 
@@ -448,21 +933,39 @@ export function buildPlanningPrompt(
     `| \`coordinator-worker\` | 3+ agents spanning ≥2 programming languages (e.g., TypeScript + Python) | Orchestrator + specialized workers |`,
     `| \`coordinator-worker\` | 3+ agents with separate runtime environments (frontend + backend + AI/ML) | Orchestrator + specialized workers |`,
     `| \`coordinator-worker\` | 3+ agents, "microservice", "distributed", "orchestrate", "plan", "research", "workflow", "coordinate" | Orchestrator + specialized workers |`,
-    `| \`multi-perspective\` | 3+ agents, "review", "quality", "audit" | Orchestrator + parallel reviewers |`,
-    `| \`tdd\` | 3+ agents, "TDD", "test-driven" | TDD coordinator + red/green/refactor |`,
-    `| \`pipeline\` | 3+ agents, clear dependency chain | Pipeline orchestrator + sequential stages |`,
+    `| \`multi-perspective\` | 3+ agents, "review", "quality", "audit", "compliance", "multi-perspective" | Orchestrator dispatches same input to parallel specialist reviewers, synthesizer merges findings into unified scorecard |`,
+    `| \`tdd\` | 3+ agents, "TDD", "test-driven", "red green refactor" | TDD Coordinator enforces strict Red → Green → Refactor sequence per testable unit |`,
+    `| \`pipeline\` | 3+ agents, clear dependency chain (stage A → stage B → stage C), "pipeline", "sequential", "stages" | Pipeline orchestrator sends output of stage N to stage N+1; each stage has a defined input/output contract |`,
+    `| \`iteration\` | 2+ agents, "iterate", "improve until", "quality threshold", "feedback loop", "progressive refinement" | Iteration coordinator loops between implementer and quality gate until acceptance threshold is met |`,
     ``,
     `**Smart Default**: When ≥3 agents span multiple programming languages or runtime environments, prefer \`coordinator-worker\` over \`flat\` — coordination is essential when agents work across language boundaries.`,
+    ``,
+    `**Pattern Selection Decision Tree:**`,
+    `1. Is there a clear sequential dependency chain where each stage transforms the previous stage's output? → \`pipeline\``,
+    `2. Do multiple specialists independently analyze the SAME input from different perspectives? → \`multi-perspective\``,
+    `3. Is the workflow explicitly test-first with red/green/refactor cycles? → \`tdd\``,
+    `4. Does the task require iterative improvement with a quality gate scoring each attempt? → \`iteration\``,
+    `5. Are there 3+ agents spanning multiple languages or runtime environments? → \`coordinator-worker\``,
+    `6. Otherwise → \`flat\``,
+    ``,
     ``,
     `When pattern ≠ \`flat\`, include these fields in each agent:`,
     `- \`agentRole\`: \`"orchestrator"\` or \`"subagent"\` or \`"standalone"\``,
     `- \`agents\`: list of subagent names (orchestrators only)`,
     `- \`userInvokable\`: \`false\` for subagents (hidden from dropdown)`,
     `- \`disableModelInvocation\`: \`true\` for orchestrators (user-only)`,
-    `- \`model\`: optional lighter model for cost-efficient subagents`,
+    `- \`model\`: optional lighter model for cost-efficient subagents (e.g., reviewers, quality gates)`,
     ``,
     `Orchestrator tools: \`[read, search, agent, todo]\` — NO \`edit\`/\`execute\`.`,
     `Orchestrator responsibilities: decompose, delegate, validate, iterate.`,
+    ``,
+    `### Pattern-Specific Orchestrator Behavior`,
+    ``,
+    `- **Pipeline orchestrators**: enforce sequential stage execution (A → B → C), validate each stage output meets a minimum quality bar before forwarding, can re-invoke a failed stage with additional context.`,
+    `- **Multi-perspective orchestrators**: dispatch the same input to all specialist subagents simultaneously, collect independent results without cross-contamination, send all results to a synthesizer/reporter subagent for merging.`,
+    `- **TDD orchestrators**: enforce strict Red → Green → Refactor ordering per unit, verify test state between stages (red must fail, green must pass, refactor must keep passing), iterate per testable unit.`,
+    `- **Iteration orchestrators**: loop between implementer and quality gate, forward specific feedback from quality gate to implementer, track iteration count (max 5), escalate if quality plateaus.`,
+    `- **Coordinator-worker orchestrators**: decompose tasks and delegate to specialized workers, validate results, iterate until acceptance criteria are met.`,
     ``,
   );
 

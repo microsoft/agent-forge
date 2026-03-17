@@ -54,7 +54,8 @@ export type OrchestrationPattern =
   | "coordinator-worker"
   | "multi-perspective"
   | "tdd"
-  | "pipeline";
+  | "pipeline"
+  | "iteration";
 
 /** Agentic Workflow pattern types */
 export type AgenticWorkflowPattern =
