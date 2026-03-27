@@ -108,7 +108,7 @@ export async function installGalleryUseCase(
 
 /** Directories to skip when symlinking a project into the temp workspace */
 const LINK_SKIP = new Set([
-  ".github", "node_modules", ".git", ".next", "dist", "build",
+  ".github", ".vscode", "node_modules", ".git", ".next", "dist", "build",
   "out", "__pycache__", ".venv", "venv", "target", ".tox",
   ".mypy_cache", ".pytest_cache", "coverage", ".turbo",
 ]);
@@ -326,6 +326,10 @@ export async function installGeneratedArtifacts(
     const mcpSrc = path.join(root, ".vscode", "mcp.json");
     if (await fs.pathExists(mcpSrc)) {
       const mcpDest = path.join(targetDir, ".vscode", "mcp.json");
+      // Guard against symlinks resolving to the same file (brownfield mode)
+      const resolvedSrc = await fs.realpath(mcpSrc);
+      const resolvedDest = (await fs.pathExists(mcpDest)) ? await fs.realpath(mcpDest) : null;
+      if (resolvedSrc === resolvedDest) break;
       await fs.ensureDir(path.dirname(mcpDest));
       await fs.copy(mcpSrc, mcpDest, { overwrite: false });
       installed.push(".vscode/mcp.json");
@@ -340,6 +344,10 @@ export async function installGeneratedArtifacts(
       const content = await fs.readFile(srcFile, "utf-8");
       if (!content.includes("AGENT-FORGE Generation Workspace")) {
         const destFile = path.join(githubDir, "copilot-instructions.md");
+        // Guard against symlinks resolving to the same file
+        const resolvedSrc = await fs.realpath(srcFile);
+        const resolvedDest = (await fs.pathExists(destFile)) ? await fs.realpath(destFile) : null;
+        if (resolvedSrc === resolvedDest) break;
         await fs.copy(srcFile, destFile, { overwrite: false });
         installed.push("copilot-instructions.md");
         break;
