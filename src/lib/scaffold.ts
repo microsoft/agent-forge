@@ -13,6 +13,7 @@ import { fileURLToPath } from "url";
 import { mergeIntoExisting } from "./merger.js";
 import { decomposeDomains, deriveProjectName, slugToTitle } from "./domain-registry.js";
 import { toVSCodeModelName } from "./copilot-cli.js";
+import YAML from "yaml";
 import type { GenerationMode, GenerationPlan } from "../types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -290,6 +291,7 @@ export async function installGeneratedArtifacts(
     "forge-mcp-writer.agent.md",
     "forge-workflow-writer.agent.md",
     "forge-plan.json",
+    "forge-plan.md",
   ]);
 
   const copyResults = await Promise.all(
@@ -426,17 +428,41 @@ export async function injectModelIntoWriterAgents(
     const content = await fs.readFile(filePath, "utf-8");
     // Skip if model already present
     if (/^model:/m.test(content)) return;
-    // Insert model: field before user-invokable: in YAML frontmatter
-    const updated = content.replace(
-      /^(---\n(?:[\s\S]*?\n))(user-invokable:)/m,
-      `$1model: "${vsCodeModel}"\n$2`,
-    );
-    if (updated !== content) {
+
+    // Parse YAML frontmatter safely instead of using fragile regex
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (!fmMatch) return;
+    try {
+      const frontmatter = YAML.parse(fmMatch[1]) as Record<string, unknown>;
+      if (frontmatter.model) return; // already set
+      frontmatter.model = vsCodeModel;
+      const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
+      const updated = `---\n${yamlStr}\n---\n${fmMatch[2]}`;
       await fs.writeFile(filePath, updated, "utf-8");
+    } catch {
+      // If YAML parsing fails, skip — don't corrupt the file
     }
   });
 
   await Promise.all(promises);
+}
+
+/**
+ * Read the human-readable forge-plan.md written by the planner agent.
+ * Returns the content or null if not found.
+ */
+export async function readPlanMarkdown(tempDir: string): Promise<string | null> {
+  const candidates = [
+    path.join(tempDir, "forge-plan.md"),
+    path.join(tempDir, ".github", "forge-plan.md"),
+    path.join(tempDir, ".github", "agents", "forge-plan.md"),
+  ];
+  for (const candidate of candidates) {
+    if (await fs.pathExists(candidate)) {
+      return fs.readFile(candidate, "utf-8");
+    }
+  }
+  return null;
 }
 
 /**
@@ -514,6 +540,64 @@ export async function readPlanFile(tempDir: string): Promise<GenerationPlan> {
     }
     if (!agent.skill) {
       agent.skill = { description: `${agent.title} domain knowledge. USE FOR: ${agent.techStack.join(", ") || agent.category}. DO NOT USE FOR: unrelated domains.` };
+    }
+  }
+
+  // Validate orchestration pattern consistency
+  const pattern = plan.orchestrationPattern ?? "flat";
+  if (pattern !== "flat") {
+    const orchestrators = plan.agents.filter((a) => a.agentRole === "orchestrator");
+    const subagents = plan.agents.filter((a) => a.agentRole === "subagent");
+
+    if (orchestrators.length === 0) {
+      throw new Error(
+        `forge-plan.json has orchestrationPattern "${pattern}" but no agent has agentRole: "orchestrator". ` +
+        `Exactly one orchestrator agent is required for non-flat patterns.`,
+      );
+    }
+
+    if (orchestrators.length > 1) {
+      throw new Error(
+        `forge-plan.json has ${orchestrators.length} orchestrator agents (${orchestrators.map((a) => a.name).join(", ")}). ` +
+        `Only one orchestrator is allowed per plan.`,
+      );
+    }
+
+    const orchestrator = orchestrators[0];
+    if (!orchestrator.agents || orchestrator.agents.length === 0) {
+      throw new Error(
+        `Orchestrator agent "${orchestrator.name}" must have a non-empty "agents" array listing its subagents.`,
+      );
+    }
+
+    // Verify all agents listed in the orchestrator's agents[] exist in the plan
+    const agentNameSet = new Set(plan.agents.map((a) => a.name));
+    for (const ref of orchestrator.agents) {
+      if (!agentNameSet.has(ref)) {
+        throw new Error(
+          `Orchestrator "${orchestrator.name}" references subagent "${ref}" but no agent with that name exists in the plan.`,
+        );
+      }
+    }
+
+    // Verify subagents referenced by orchestrator have agentRole: "subagent"
+    for (const ref of orchestrator.agents) {
+      const target = plan.agents.find((a) => a.name === ref);
+      if (target && target.agentRole !== "subagent") {
+        // Auto-fix: set agentRole to "subagent" and userInvokable to false
+        target.agentRole = "subagent";
+        target.userInvokable = target.userInvokable ?? false;
+      }
+    }
+
+    // Verify no orphan subagents (subagent not listed in any orchestrator's agents[])
+    const referencedSubagents = new Set(orchestrator.agents);
+    for (const sub of subagents) {
+      if (!referencedSubagents.has(sub.name)) {
+        throw new Error(
+          `Agent "${sub.name}" has agentRole: "subagent" but is not listed in orchestrator "${orchestrator.name}"'s agents array.`,
+        );
+      }
     }
   }
 

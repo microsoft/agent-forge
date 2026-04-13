@@ -5,6 +5,7 @@ import {
   installGeneratedArtifacts,
   cleanupGenerationWorkspace,
   readPlanFile,
+  readPlanMarkdown,
   prepareWorkspaceForPlan,
   injectModelIntoWriterAgents,
 } from "../lib/scaffold.js";
@@ -103,6 +104,7 @@ export async function generateCommand(
       model,
       agent: "forge-greenfield-planner",
       maxContinues: 15,
+      plan: true,
     });
 
     if (planOutput.exitCode !== 0) {
@@ -114,6 +116,44 @@ export async function generateCommand(
     const plan = await readPlanFile(tempDir);
     planSpinner.succeed(`Plan ready — ${plan.agents.length} agent(s): ${plan.agents.map((a) => a.name).join(", ")}`);
 
+    // Show the human-readable plan with syntax coloring
+    const planMd = await readPlanMarkdown(tempDir);
+    if (planMd) {
+      console.log();
+      const planBorder = chalk.hex("#555555");
+      for (const line of planMd.trimEnd().split("\n")) {
+        let colored: string;
+        if (/^# /.test(line)) {
+          colored = chalk.hex("#FF8C00").bold(line.replace(/^# /, ""));
+        } else if (/^## /.test(line)) {
+          colored = chalk.hex("#FF8C00")(line);
+        } else if (/^\|[-|:\s]+$/.test(line)) {
+          colored = chalk.hex("#555555")(line);
+        } else if (/^\|/.test(line)) {
+          colored = chalk.dim(line);
+        } else if (/^- \*\*/.test(line)) {
+          colored = line.replace(/\*\*([^*]+)\*\*/g, (_, m) => chalk.white.bold(m));
+        } else if (/^\s*$/.test(line)) {
+          colored = "";
+        } else {
+          colored = chalk.white(line);
+        }
+        console.log(planBorder("  │ ") + colored);
+      }
+    } else {
+      // Fallback: compact summary from JSON
+      const pattern = plan.orchestrationPattern ?? "flat";
+      console.log(chalk.hex("#555555")("  │ ") + chalk.hex("#FF8C00")("Pattern   ") + chalk.white(pattern));
+      console.log();
+      for (const a of plan.agents) {
+        let tech = a.techStack.length > 0 ? a.techStack.slice(0, 4).join(", ") : "general";
+        if (tech.length > 20) tech = tech.slice(0, 18) + "..";
+        const roleTag = a.agentRole === "orchestrator" ? chalk.hex("#FFD700")(" ⚡orchestrator") : a.agentRole === "subagent" ? chalk.dim(" (subagent)") : "";
+        console.log(chalk.hex("#555555")("  │ ") + chalk.cyan(a.name.padEnd(18)) + chalk.dim(tech.padEnd(22)) + chalk.white(a.applyToGlob) + roleTag);
+      }
+    }
+    console.log();
+
     // Prepare workspace directories for Phase 2
     await prepareWorkspaceForPlan(tempDir, plan);
 
@@ -122,7 +162,7 @@ export async function generateCommand(
 
     // Phase 2: Generate artifacts (fleet mode — parallel subagents)
     console.log();
-    console.log(chalk.hex("#FF8C00").bold(`  ── Phase 2 · Generating (Fleet ⚡) ` + "─".repeat(14)));
+    console.log(chalk.hex("#FF8C00").bold("  ── Phase 2 · Generating (Fleet ⚡) " + "─".repeat(23)));
 
     let exitCode: number;
     const phase2Start = Date.now();
@@ -153,17 +193,50 @@ export async function generateCommand(
     const installed = await installGeneratedArtifacts(tempDir, targetDir, plan.slug);
     cleanupGenerationWorkspace(tempDir).catch(() => {});
 
+    // Show what was generated
+    if (installed.length === 0) {
+      console.log(`  ${chalk.red("✗")} ${chalk.red.bold("No files were generated")} — the fleet orchestrator may have failed`);
+      console.log(chalk.dim("    Check the Copilot CLI output above for errors."));
+      process.exit(1);
+    }
+    console.log(`  ${chalk.green("✓")} ${chalk.white.bold(`${installed.length} files generated`)}`);
+    const tc = chalk.hex("#555555");
+    for (let i = 0; i < installed.length; i++) {
+      const prefix = i === installed.length - 1 ? "└──" : "├──";
+      console.log(tc(`    ${prefix} `) + chalk.white(installed[i]));
+    }
+
     // Phase 3: Validation
     console.log();
     console.log(chalk.hex("#FF8C00").bold("  ── Phase 3 · Validation ──────────────────────────────────"));
     const fixSpinner = ora("  Checking artifacts...").start();
     const report = await postGenerationValidateAndFix(targetDir);
-    if (report.errors.length === 0) {
-      fixSpinner.succeed(`  ${report.passed.length} files passed${report.warnings.length > 0 ? `, ${report.warnings.length} warning(s)` : ""}`);
+    fixSpinner.stop();
+
+    // Show auto-fixes applied
+    if (report.autoFixed && report.autoFixed.length > 0) {
+      console.log(`  ${chalk.green("✓")} Auto-fixed ${report.autoFixed.length} issue(s):`);
+      for (const fix of report.autoFixed) {
+        console.log(chalk.dim(`    ↻ ${fix.file}: ${fix.action}`));
+      }
+      console.log();
+    }
+
+    // Show validation results with full detail
+    if (report.errors.length === 0 && report.warnings.length === 0) {
+      console.log(`  ${chalk.green("✓")} ${report.passed.length} files passed — all checks clean`);
+    } else if (report.errors.length === 0) {
+      console.log(`  ${chalk.green("✓")} ${report.passed.length} files passed, ${chalk.yellow(`${report.warnings.length} warning(s)`)}`);
+      for (const w of report.warnings) {
+        console.log(chalk.yellow(`    ⚠ ${path.basename(w.file)}: ${w.message}`));
+      }
     } else {
-      fixSpinner.warn(`  ${report.errors.length} error(s) remain after auto-fix`);
+      console.log(`  ${chalk.red("✗")} ${report.errors.length} error(s) remain after auto-fix`);
       for (const err of report.errors) {
         console.log(chalk.red(`    ✗ ${path.basename(err.file)}: ${err.message}`));
+      }
+      for (const w of report.warnings) {
+        console.log(chalk.yellow(`    ⚠ ${path.basename(w.file)}: ${w.message}`));
       }
     }
 
@@ -215,7 +288,6 @@ export async function generateCommand(
       console.log(bc("  │") + `  ${vpad(`${chalk.dim("Speed")} ${chalk.white.bold("Fleet ⚡")}`, 55)}` + bc("│"));
       console.log(bc(`  └${divider}┘`));
 
-      printGeneratedFiles(plan.slug, installed);
       console.log();
       console.log(`  ${chalk.hex("#FF8C00").bold("Next steps")}`);
       console.log(`    ${chalk.hex("#FF8C00")("1.")} Open Copilot Chat ${chalk.dim("⌘⇧I / Ctrl+Shift+I")}`);
@@ -232,11 +304,18 @@ export async function generateCommand(
         console.log(chalk.dim("    Handoff buttons let you transition between agents."));
       }
       console.log();
-      console.log(chalk.dim("  Tip: Run 'forge validate' to verify all files pass VS Code spec checks."));
+      if (report.fixableCount > 0) {
+        console.log(chalk.dim(`  Tip: Run 'forge validate --fix' to auto-fix ${report.fixableCount} remaining issue(s) with AI.`));
+      }
       console.log();
     } else {
       console.log();
       console.log(chalk.yellow("⚠  Generation finished with warnings. Review the generated files."));
+    }
+
+    // Exit with error code if validation found errors
+    if (report.errors.length > 0) {
+      process.exit(1);
     }
   } catch (error) {
     spinner.fail("Failed to generate");
@@ -245,27 +324,4 @@ export async function generateCommand(
   }
 }
 
-function printGeneratedFiles(_slug: string, files: string[]): void {
-  const githubFiles = files.filter((f) => !f.startsWith(".vscode/"));
-  const vscodeFiles = files.filter((f) => f.startsWith(".vscode/"));
-  const tc = chalk.hex("#555555");
 
-  if (githubFiles.length > 0) {
-    console.log();
-    console.log(`  ${chalk.hex("#FF8C00").bold(".github/")}`);
-    for (let i = 0; i < githubFiles.length; i++) {
-      const prefix = i === githubFiles.length - 1 && vscodeFiles.length === 0 ? "└──" : "├──";
-      console.log(tc(`    ${prefix} `) + chalk.white(githubFiles[i]));
-    }
-  }
-
-  if (vscodeFiles.length > 0) {
-    console.log();
-    console.log(`  ${chalk.hex("#FF8C00").bold(".vscode/")}`);
-    for (let i = 0; i < vscodeFiles.length; i++) {
-      const name = vscodeFiles[i].replace(".vscode/", "");
-      const prefix = i === vscodeFiles.length - 1 ? "└──" : "├──";
-      console.log(tc(`    ${prefix} `) + chalk.white(name));
-    }
-  }
-}

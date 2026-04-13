@@ -149,6 +149,16 @@ export interface ValidationReport {
   summary: string;
   /** Count of findings that can be auto-fixed by the LLM */
   fixableCount: number;
+  /** Actions taken by the auto-fixer before validation (only populated by postGenerationValidateAndFix) */
+  autoFixed?: AutoFixAction[];
+}
+
+/** A single auto-fix action applied during post-generation validation */
+export interface AutoFixAction {
+  /** File that was modified */
+  file: string;
+  /** Human-readable description of what was fixed */
+  action: string;
 }
 
 /** Init wizard mode */

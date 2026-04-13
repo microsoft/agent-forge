@@ -313,6 +313,8 @@ export interface LaunchOptions {
   maxContinues?: number;
   /** Suppress terminal output (pipe instead of inherit stdio) */
   quiet?: boolean;
+  /** Use /plan mode — Copilot CLI displays the execution plan before running (used for Phase 1 planning) */
+  plan?: boolean;
   /** Use /fleet mode — Copilot CLI breaks the prompt into parallel subtasks delegated to subagents */
   fleet?: boolean;
 }
@@ -336,12 +338,19 @@ export function launchCopilotCli(
     // Use agent name in filename to prevent conflicts during parallel execution.
     const promptFileName = `_forge-prompt-${agentName}.md`;
     const promptFilePath = path.join(workingDir, promptFileName);
-    fs.writeFileSync(promptFilePath, prompt, "utf-8");
+    try {
+      fs.writeFileSync(promptFilePath, prompt, "utf-8");
+    } catch (err) {
+      reject(new Error(`Failed to write prompt file ${promptFilePath}: ${(err as Error).message}`));
+      return;
+    }
 
     const args = [
       "-p", options?.fleet
         ? `/fleet Read and follow all instructions in ${promptFileName}`
-        : `Read and follow all instructions in ${promptFileName}`,
+        : options?.plan
+          ? `/plan Read and follow all instructions in ${promptFileName}`
+          : `Read and follow all instructions in ${promptFileName}`,
       "--agent", agentName,
       "--autopilot",
       "--allow-all",
@@ -386,13 +395,28 @@ export function launchCopilotCli(
       });
     }
 
+    // Timeout: kill the process if it hangs (default: 10 minutes)
+    const timeoutMs = 10 * 60 * 1000;
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      setTimeout(() => { if (!child.killed) child.kill("SIGKILL"); }, 5000);
+    }, timeoutMs);
+
     child.on("error", (err) => {
+      clearTimeout(timer);
       fs.removeSync(promptFilePath);
       reject(new Error(`Failed to launch Copilot CLI: ${err.message}`));
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
       fs.removeSync(promptFilePath);
+      if (signal === "SIGTERM" || signal === "SIGKILL") {
+        const output = parseCopilotOutput(stdoutBuf + "\n" + stderrBuf, 1);
+        output.exitCode = 1;
+        resolve(output);
+        return;
+      }
       // Combine stdout + stderr — usage stats may appear in either stream
       resolve(parseCopilotOutput(stdoutBuf + "\n" + stderrBuf, code ?? 0));
     });

@@ -9,6 +9,7 @@ import {
   installGeneratedArtifacts,
   cleanupGenerationWorkspace,
   readPlanFile,
+  readPlanMarkdown,
   prepareWorkspaceForPlan,
   injectModelIntoWriterAgents,
 } from "../lib/scaffold.js";
@@ -256,16 +257,23 @@ export async function initCommand(
     ],
   });
 
-  switch (mode) {
-    case "create":
-      await handleCreate(options);
-      break;
-    case "analyze":
-      await handleAnalyze(process.cwd(), options);
-      break;
-    case "templates":
-      await handleTemplates(process.cwd(), options);
-      break;
+  try {
+    switch (mode) {
+      case "create":
+        await handleCreate(options);
+        break;
+      case "analyze":
+        await handleAnalyze(process.cwd(), options);
+        break;
+      case "templates":
+        await handleTemplates(process.cwd(), options);
+        break;
+    }
+  } catch (error) {
+    console.log();
+    console.log(chalk.red.bold("  ✗ Failed"));
+    console.log(chalk.red(`    ${error instanceof Error ? error.message : String(error)}`));
+    process.exit(1);
   }
 }
 
@@ -523,6 +531,7 @@ async function runGeneration(
     model,
     agent: plannerAgent,
     maxContinues: 15,
+    plan: true,
   });
 
   if (planOutput.exitCode !== 0) {
@@ -532,6 +541,44 @@ async function runGeneration(
   const planSpinner = ora("Reading plan...").start();
   const plan = await readPlanFile(tempDir);
   planSpinner.succeed(`Plan ready — ${plan.agents.length} agent(s): ${plan.agents.map((a) => a.name).join(", ")}`);
+
+  // Show the human-readable plan with syntax coloring
+  const planMd = await readPlanMarkdown(tempDir);
+  if (planMd) {
+    console.log();
+    const planBorder = chalk.hex(DIM_BORDER);
+    for (const line of planMd.trimEnd().split("\n")) {
+      let colored: string;
+      if (/^# /.test(line)) {
+        colored = chalk.hex(ACCENT).bold(line.replace(/^# /, ""));
+      } else if (/^## /.test(line)) {
+        colored = chalk.hex(ACCENT)(line);
+      } else if (/^\|[-|:\s]+$/.test(line)) {
+        colored = chalk.hex(DIM_BORDER)(line);
+      } else if (/^\|/.test(line)) {
+        colored = chalk.dim(line);
+      } else if (/^- \*\*/.test(line)) {
+        colored = line.replace(/\*\*([^*]+)\*\*/g, (_, m) => chalk.white.bold(m));
+      } else if (/^\s*$/.test(line)) {
+        colored = "";
+      } else {
+        colored = chalk.white(line);
+      }
+      console.log(planBorder("  │ ") + colored);
+    }
+  } else {
+    // Fallback: compact summary from JSON
+    const pattern = plan.orchestrationPattern ?? "flat";
+    detail("Pattern", pattern);
+    console.log();
+    for (const a of plan.agents) {
+      let tech = a.techStack.length > 0 ? a.techStack.slice(0, 4).join(", ") : "general";
+      const roleTag = a.agentRole === "orchestrator" ? chalk.hex("#FFD700")(" ⚡orchestrator") : a.agentRole === "subagent" ? chalk.dim(" (subagent)") : "";
+      if (tech.length > 20) tech = tech.slice(0, 18) + "..";
+      console.log(chalk.hex(DIM_BORDER)("  │ ") + chalk.cyan(a.name.padEnd(18)) + chalk.dim(tech.padEnd(22)) + chalk.white(a.applyToGlob) + roleTag);
+    }
+  }
+  console.log();
 
   await prepareWorkspaceForPlan(tempDir, plan);
 
@@ -571,27 +618,49 @@ async function runGeneration(
   const installed = await installGeneratedArtifacts(tempDir, targetDir, plan.slug);
   cleanupGenerationWorkspace(tempDir).catch(() => {});
 
+  // Show what was generated
+  if (installed.length === 0) {
+    console.log(`  ${chalk.red("\u2717")} ${chalk.red.bold("No files were generated")} \u2014 the fleet orchestrator may have failed`);
+    console.log(chalk.dim("    Check the Copilot CLI output above for errors."));
+    process.exit(1);
+  }
+  console.log(`  ${chalk.green("\u2713")} ${chalk.white.bold(`${installed.length} files generated`)}`);
+  const tc = chalk.hex(DIM_BORDER);
+  for (let i = 0; i < installed.length; i++) {
+    const prefix = i === installed.length - 1 ? "└──" : "├──";
+    console.log(tc(`    ${prefix} `) + chalk.white(installed[i]));
+  }
+
   // ── Phase 3: Validation ────────────────────────────────────────────
   sectionHeader("Phase 3 · Validation");
   const fixSpinner = ora("  Checking artifacts...").start();
   const report = await postGenerationValidateAndFix(targetDir);
+  fixSpinner.stop();
+
+  // Show auto-fixes applied
+  if (report.autoFixed && report.autoFixed.length > 0) {
+    console.log(`  ${chalk.green("✓")} Auto-fixed ${report.autoFixed.length} issue(s):`);
+    for (const fix of report.autoFixed) {
+      console.log(chalk.dim(`    ↻ ${fix.file}: ${fix.action}`));
+    }
+    console.log();
+  }
+
+  // Show validation results with full detail
   if (report.errors.length === 0 && report.warnings.length === 0) {
-    fixSpinner.succeed(`  ${report.passed.length} files passed — all checks clean`);
+    console.log(`  ${chalk.green("✓")} ${report.passed.length} files passed — all checks clean`);
   } else if (report.errors.length === 0) {
-    fixSpinner.succeed(`  ${report.passed.length} files passed, ${report.warnings.length} warning(s)`);
+    console.log(`  ${chalk.green("✓")} ${report.passed.length} files passed, ${chalk.yellow(`${report.warnings.length} warning(s)`)}`);
     for (const w of report.warnings) {
-      const fileName = path.basename(w.file);
-      console.log(chalk.dim(`    ⚠ ${fileName}: ${w.message}`));
+      console.log(chalk.yellow(`    ⚠ ${path.basename(w.file)}: ${w.message}`));
     }
   } else {
-    fixSpinner.warn(`  ${report.errors.length} error(s) remain after auto-fix`);
+    console.log(`  ${chalk.red("✗")} ${report.errors.length} error(s) remain after auto-fix`);
     for (const e of report.errors) {
-      const fileName = path.basename(e.file);
-      console.log(chalk.red(`    ✗ ${fileName}: ${e.message}`));
+      console.log(chalk.red(`    ✗ ${path.basename(e.file)}: ${e.message}`));
     }
     for (const w of report.warnings) {
-      const fileName = path.basename(w.file);
-      console.log(chalk.dim(`    ⚠ ${fileName}: ${w.message}`));
+      console.log(chalk.yellow(`    ⚠ ${path.basename(w.file)}: ${w.message}`));
     }
   }
 
@@ -658,9 +727,13 @@ async function runGeneration(
     console.log(row(`  ${chalk.dim("Speed")} ${chalk.white.bold("Fleet ⚡")}`));
     console.log(bc(`  └${divider}┘`));
 
-    printGeneratedFiles(plan.slug, installed);
   } else {
-    console.log(chalk.yellow("  ⚠  Generation finished with warnings. Review the generated files."));
+    console.log(chalk.yellow("  \u26a0  Generation finished with warnings. Review the generated files."));
+  }
+
+  // Exit with error code if validation found errors
+  if (report.errors.length > 0) {
+    process.exit(1);
   }
 }
 
@@ -696,57 +769,6 @@ function buildDiscoveryDescription(workspace: WorkspaceInfo): string {
   }
 
   return desc;
-}
-
-function printGeneratedFiles(_slug: string, files: string[]): void {
-  const githubFiles = files.filter((f) => !f.startsWith(".vscode/"));
-  const vscodeFiles = files.filter((f) => f.startsWith(".vscode/"));
-  const tc = chalk.hex(DIM_BORDER); // tree connector color
-
-  if (githubFiles.length > 0) {
-    const groups = new Map<string, string[]>();
-    for (const f of githubFiles) {
-      const parts = f.split("/");
-      const dir = parts.length > 1 ? parts[0] : "";
-      const name = parts.length > 1 ? parts.slice(1).join("/") : f;
-      if (!groups.has(dir)) groups.set(dir, []);
-      groups.get(dir)!.push(name);
-    }
-
-    console.log();
-    console.log(`  ${chalk.hex(ACCENT).bold(".github/")}`);
-    const dirs = [...groups.keys()];
-    for (let d = 0; d < dirs.length; d++) {
-      const dir = dirs[d];
-      const dirFiles = groups.get(dir)!;
-      const isLastDir = d === dirs.length - 1;
-      const dirPrefix = isLastDir ? "└── " : "├── ";
-      const childIndent = isLastDir ? "    " : "│   ";
-
-      if (dir) {
-        console.log(tc(`    ${dirPrefix}`) + chalk.hex(ACCENT).bold(dir + "/"));
-        for (let i = 0; i < dirFiles.length; i++) {
-          const filePrefix = i === dirFiles.length - 1 ? "└── " : "├── ";
-          console.log(tc(`    ${childIndent}${filePrefix}`) + chalk.white(dirFiles[i]));
-        }
-      } else {
-        for (let i = 0; i < dirFiles.length; i++) {
-          const filePrefix = (isLastDir && i === dirFiles.length - 1) ? "└── " : "├── ";
-          console.log(tc(`    ${filePrefix}`) + chalk.white(dirFiles[i]));
-        }
-      }
-    }
-  }
-
-  if (vscodeFiles.length > 0) {
-    console.log();
-    console.log(`  ${chalk.hex(ACCENT).bold(".vscode/")}`);
-    for (let i = 0; i < vscodeFiles.length; i++) {
-      const name = vscodeFiles[i].replace(".vscode/", "");
-      const prefix = i === vscodeFiles.length - 1 ? "└── " : "├── ";
-      console.log(tc(`    ${prefix}`) + chalk.white(name));
-    }
-  }
 }
 
 function printNextSteps(): void {

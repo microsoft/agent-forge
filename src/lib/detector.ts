@@ -45,6 +45,9 @@ const PROJECT_TYPE_HINTS: Record<string, ProjectType> = {
 export async function detectWorkspace(
   targetDir: string,
 ): Promise<WorkspaceInfo> {
+  if (!(await fs.pathExists(targetDir))) {
+    throw new Error(`Target directory does not exist: ${targetDir}`);
+  }
   const githubDir = path.join(targetDir, ".github");
   const agentsDir = path.join(githubDir, "agents");
   const promptsDir = path.join(githubDir, "prompts");

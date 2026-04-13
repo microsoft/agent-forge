@@ -6,6 +6,7 @@ import type {
   ValidationReport,
   ValidationFinding,
   ArtifactType,
+  AutoFixAction,
 } from "../types.js";
 import { isCopilotCliInstalled, buildShellCommand } from "./copilot-cli.js";
 
@@ -157,8 +158,10 @@ export async function postGenerationValidateAndFix(
 ): Promise<ValidationReport> {
   const githubDir = path.join(targetDir, ".github");
   if (!(await fs.pathExists(githubDir))) {
-    return { errors: [], warnings: [], passed: [], summary: "No .github/ directory found", fixableCount: 0 };
+    return { errors: [], warnings: [], passed: [], summary: "No .github/ directory found", fixableCount: 0, autoFixed: [] };
   }
+
+  const autoFixed: AutoFixAction[] = [];
 
   // Phase 1: Auto-fix all markdown artifacts
   const artifactDirs: Array<{ dir: string; suffix: string; type: ArtifactType }> = [
@@ -172,7 +175,8 @@ export async function postGenerationValidateAndFix(
       const files = await fs.readdir(dir);
       for (const file of files) {
         if (file.endsWith(suffix)) {
-          await autoFixFile(path.join(dir, file), type);
+          const fixes = await autoFixFile(path.join(dir, file), type);
+          autoFixed.push(...fixes);
         }
       }
     }
@@ -186,7 +190,8 @@ export async function postGenerationValidateAndFix(
       if (entry.isDirectory()) {
         const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
         if (await fs.pathExists(skillFile)) {
-          await autoFixFile(skillFile, "skill");
+          const fixes = await autoFixFile(skillFile, "skill");
+          autoFixed.push(...fixes);
         }
       }
     }
@@ -195,11 +200,14 @@ export async function postGenerationValidateAndFix(
   // Phase 1b: Cross-file handoff fix — ensure handoff agent: values match target name: fields
   const agentsDir = path.join(githubDir, "agents");
   if (await fs.pathExists(agentsDir)) {
-    await autoFixHandoffReferences(agentsDir);
+    const fixes = await autoFixHandoffReferences(agentsDir);
+    autoFixed.push(...fixes);
   }
 
   // Phase 2: Validate after fixes
-  return validateDirectory(targetDir);
+  const report = await validateDirectory(targetDir);
+  report.autoFixed = autoFixed;
+  return report;
 }
 
 /**
@@ -213,7 +221,9 @@ export async function postGenerationValidateAndFix(
 async function autoFixFile(
   filePath: string,
   type: ArtifactType,
-): Promise<void> {
+): Promise<AutoFixAction[]> {
+  const fixes: AutoFixAction[] = [];
+  const fileName = path.basename(filePath);
   const content = await fs.readFile(filePath, "utf-8");
   let { frontmatter, body } = parseFrontmatter(content);
 
@@ -233,7 +243,6 @@ async function autoFixFile(
       frontmatter.description = `${name} development agent`;
     } else if (type === "instruction") {
       frontmatter.description = `Coding standards for ${name} — auto-applied to matching files`;
-      // Infer applyTo from file name
       const lower = name.toLowerCase();
       if (/react|frontend|next|vue|angular|svelte|tailwind|css/.test(lower)) {
         frontmatter.applyTo = "**/*.{ts,tsx,js,jsx,css,scss}";
@@ -248,7 +257,6 @@ async function autoFixFile(
       const firstHeading = body.match(/^#\s+(.+)$/m)?.[1];
       frontmatter.description = firstHeading || `${name} prompt`;
     } else {
-      // skill
       const firstHeading = body.match(/^#\s+(.+)$/m)?.[1];
       frontmatter.description = firstHeading || `${name} domain knowledge`;
     }
@@ -256,41 +264,48 @@ async function autoFixFile(
     const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
     const newContent = `---\n${yamlStr}\n---\n${body}`;
     await fs.writeFile(filePath, newContent);
-    return;
+    fixes.push({ file: fileName, action: "Reconstructed missing YAML frontmatter" });
+    return fixes;
   }
 
   const validFields = VALID_FIELDS[type];
-  if (!validFields) return;
+  if (!validFields) return fixes;
 
   let modified = false;
 
   // Fix: Remove unrecognized fields
+  const removedFields: string[] = [];
   for (const key of Object.keys(frontmatter)) {
     if (!validFields.has(key)) {
+      removedFields.push(key);
       delete frontmatter[key];
       modified = true;
     }
+  }
+  if (removedFields.length > 0) {
+    fixes.push({ file: fileName, action: `Removed unrecognized field(s): ${removedFields.join(", ")}` });
   }
 
   // Fix: Missing description
   if (!frontmatter.description) {
     const name = frontmatter.name as string | undefined;
-    const fileName = path.basename(filePath).replace(/\.(agent|prompt|instructions)\.md$/, "").replace(/^SKILL$/, "");
+    const fileBase = path.basename(filePath).replace(/\.(agent|prompt|instructions)\.md$/, "").replace(/^SKILL$/, "");
     const firstHeading = body.match(/^#\s+(.+)$/m)?.[1];
 
     let desc: string;
     if (type === "agent") {
-      desc = name ? `${name} development agent` : `${autoFixSlugToTitle(fileName)} agent`;
+      desc = name ? `${name} development agent` : `${autoFixSlugToTitle(fileBase)} agent`;
     } else if (type === "instruction") {
-      desc = `Coding standards for ${name || autoFixSlugToTitle(fileName)} — auto-applied to matching files`;
+      desc = `Coding standards for ${name || autoFixSlugToTitle(fileBase)} — auto-applied to matching files`;
     } else if (type === "prompt") {
-      desc = firstHeading || `${autoFixSlugToTitle(fileName)} prompt`;
+      desc = firstHeading || `${autoFixSlugToTitle(fileBase)} prompt`;
     } else {
-      desc = firstHeading || `${autoFixSlugToTitle(fileName)} domain knowledge`;
+      desc = firstHeading || `${autoFixSlugToTitle(fileBase)} domain knowledge`;
     }
 
     frontmatter.description = desc;
     modified = true;
+    fixes.push({ file: fileName, action: "Added missing description" });
   }
 
   // Fix: Instruction missing applyTo
@@ -308,12 +323,14 @@ async function autoFixFile(
       frontmatter.applyTo = "**/*";
     }
     modified = true;
+    fixes.push({ file: fileName, action: `Added missing applyTo: "${frontmatter.applyTo}"` });
   }
 
   // Fix: user-invokable as string → boolean
   if ((type === "agent" || type === "skill") && typeof frontmatter["user-invokable"] === "string") {
     frontmatter["user-invokable"] = frontmatter["user-invokable"] === "true";
     modified = true;
+    fixes.push({ file: fileName, action: "Converted user-invokable from string to boolean" });
   }
 
   // Fix: migrate deprecated infer → user-invokable + disable-model-invocation
@@ -325,15 +342,16 @@ async function autoFixFile(
     }
     delete frontmatter.infer;
     modified = true;
+    fixes.push({ file: fileName, action: "Migrated deprecated 'infer' to user-invokable + disable-model-invocation" });
   }
-
-
 
   if (modified) {
     const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
     const newContent = `---\n${yamlStr}\n---\n${body}`;
     await fs.writeFile(filePath, newContent);
   }
+
+  return fixes;
 }
 
 /**
@@ -341,9 +359,10 @@ async function autoFixFile(
  * The LLM often uses filename slugs (e.g., "fastapi") instead of the name field value
  * (e.g., "FastAPI FinOps Service"). This pass corrects those references.
  */
-async function autoFixHandoffReferences(agentsDir: string): Promise<void> {
+async function autoFixHandoffReferences(agentsDir: string): Promise<AutoFixAction[]> {
+  const fixes: AutoFixAction[] = [];
   const files = (await fs.readdir(agentsDir)).filter((f) => f.endsWith(".agent.md"));
-  if (files.length < 2) return;
+  if (files.length < 2) return fixes;
 
   // Build slug → name mapping from all agent files
   const slugToName = new Map<string, string>();
@@ -359,20 +378,40 @@ async function autoFixHandoffReferences(agentsDir: string): Promise<void> {
     }
   }
 
-  if (slugToName.size === 0) return;
+  if (slugToName.size === 0) return fixes;
 
-  // Fix handoff references in each agent file
+  // Fix handoff references and agents: array references in each agent file
   for (const file of files) {
     const filePath = path.join(agentsDir, file);
     const content = await fs.readFile(filePath, "utf-8");
     const { frontmatter, body } = parseFrontmatter(content);
-    if (!frontmatter || !Array.isArray(frontmatter.handoffs)) continue;
+    if (!frontmatter) continue;
 
     let modified = false;
-    for (const handoff of frontmatter.handoffs as Array<Record<string, unknown>>) {
-      if (typeof handoff.agent === "string" && slugToName.has(handoff.agent)) {
-        handoff.agent = slugToName.get(handoff.agent)!;
-        modified = true;
+    const fixedRefs: string[] = [];
+
+    // Fix handoff agent: references (slug → display name)
+    if (Array.isArray(frontmatter.handoffs)) {
+      for (const handoff of frontmatter.handoffs as Array<Record<string, unknown>>) {
+        if (typeof handoff.agent === "string" && slugToName.has(handoff.agent)) {
+          const oldRef = handoff.agent;
+          handoff.agent = slugToName.get(handoff.agent)!;
+          fixedRefs.push(`handoff "${oldRef}" → "${handoff.agent}"`);
+          modified = true;
+        }
+      }
+    }
+
+    // Fix agents: array references on orchestrators (slug → display name)
+    if (Array.isArray(frontmatter.agents)) {
+      const agents = frontmatter.agents as string[];
+      for (let i = 0; i < agents.length; i++) {
+        if (typeof agents[i] === "string" && slugToName.has(agents[i])) {
+          const oldRef = agents[i];
+          agents[i] = slugToName.get(agents[i])!;
+          fixedRefs.push(`subagent "${oldRef}" → "${agents[i]}"`);
+          modified = true;
+        }
       }
     }
 
@@ -380,8 +419,11 @@ async function autoFixHandoffReferences(agentsDir: string): Promise<void> {
       const yamlStr = YAML.stringify(frontmatter, { lineWidth: 0 }).trim();
       const newContent = `---\n${yamlStr}\n---\n${body}`;
       await fs.writeFile(filePath, newContent);
+      fixes.push({ file, action: `Fixed agent reference(s): ${fixedRefs.join("; ")}` });
     }
   }
+
+  return fixes;
 }
 
 function autoFixSlugToTitle(slug: string): string {
@@ -658,7 +700,18 @@ async function validateHookFiles(
     const filePath = path.join(dir, file);
     try {
       const content = await fs.readFile(filePath, "utf-8");
-      const config = JSON.parse(content) as { hooks?: Record<string, unknown[]> };
+      const config = JSON.parse(content) as { version?: number; hooks?: Record<string, unknown[]> };
+
+      // Check required version field
+      if (config.version !== 1) {
+        findings.push({
+          severity: "error",
+          file: filePath,
+          message: 'Hook config must have "version": 1 at the root level',
+          field: "version",
+          fixable: true,
+        });
+      }
 
       if (!config.hooks || typeof config.hooks !== "object") {
         findings.push({
@@ -701,11 +754,14 @@ async function validateHookFiles(
             });
             hasError = true;
           }
-          if (!c.command && !c.windows && !c.linux && !c.osx) {
+          // Accept both legacy (command/windows/linux/osx) and modern (bash/powershell) key formats
+          const hasLegacyKeys = c.command || c.windows || c.linux || c.osx;
+          const hasModernKeys = c.bash || c.powershell;
+          if (!hasLegacyKeys && !hasModernKeys) {
             findings.push({
               severity: "error",
               file: filePath,
-              message: `Hook command missing "command" field (in event "${event}")`,
+              message: `Hook command missing execution target — provide "bash"/"powershell" (preferred) or "command"/"windows"/"linux"/"osx" (in event "${event}")`,
               field: event,
             });
             hasError = true;
@@ -924,11 +980,13 @@ async function validateFile(
       const hasEditTools = tools.some((t: string) => ["edit", "Edit", "MultiEdit", "Write", "execute", "shell", "Bash", "run_in_terminal"].includes(t));
       if (hasEditTools) {
         findings.push({
-          severity: "warning",
+          severity: "error",
           file: filePath,
-          message: 'Agent with "agents" property (orchestrator) has edit/execute tools — orchestrators should delegate implementation to subagents instead',
+          message: 'Agent with "agents" property (orchestrator) must not have edit/execute tools — orchestrators delegate all implementation to subagents',
           field: "tools",
+          fixable: true,
         });
+        hasError = true;
       }
     }
   }
@@ -1100,10 +1158,14 @@ function validateBodyQuality(
   body: string,
   findings: ValidationFinding[],
 ): void {
-  // Detect common placeholder/TODO patterns
+  // Strip code blocks before checking for placeholder patterns —
+  // legitimate code often contains "TODO", enum values, and technical terms
+  const bodyWithoutCode = body.replace(/```[\s\S]*?```/g, "").replace(/`[^`]+`/g, "");
+
+  // Detect common placeholder/TODO patterns (only outside code blocks)
   const placeholderPatterns = [
-    { pattern: /\bTODO\b/, label: "TODO" },
-    { pattern: /\bPLACEHOLDER\b/i, label: "PLACEHOLDER" },
+    { pattern: /(?:\/\/|#|<!--)\s*TODO\b/, label: "TODO comment" },
+    { pattern: /\bPLACEHOLDER\b/, label: "PLACEHOLDER" },
     { pattern: /\bINSERT\s+HERE\b/i, label: "INSERT HERE" },
     { pattern: /\bLorem\s+ipsum\b/i, label: "Lorem ipsum" },
     { pattern: /\byour\s+\w+\s+here\b/i, label: "your ... here" },
@@ -1112,7 +1174,7 @@ function validateBodyQuality(
   ];
 
   for (const { pattern, label } of placeholderPatterns) {
-    if (pattern.test(body)) {
+    if (pattern.test(bodyWithoutCode)) {
       findings.push({
         severity: "warning",
         file: filePath,
@@ -1219,20 +1281,24 @@ export async function fixWithLLM(
 
   // Write corrected files
   let fixedCount = 0;
+  const normalizedTargetDir = path.resolve(targetDir);
   for (const [fp, correctedContent] of Object.entries(corrections)) {
     // Resolve the path — it may be relative or absolute in the LLM response
-    const resolvedPath = path.isAbsolute(fp) ? fp : path.join(targetDir, fp);
+    const resolvedPath = path.resolve(path.isAbsolute(fp) ? fp : path.join(targetDir, fp));
 
-    // Safety: only write to files that were part of the original findings
-    if (!fileContents.has(resolvedPath) && !filePaths.includes(fp)) {
+    // Safety: prevent path traversal — resolved path must be within targetDir
+    if (!resolvedPath.startsWith(normalizedTargetDir + path.sep) && resolvedPath !== normalizedTargetDir) {
       continue;
     }
 
-    const writePath = fileContents.has(resolvedPath) ? resolvedPath : fp;
+    // Safety: only write to files that were part of the original findings
+    if (!fileContents.has(resolvedPath) && !filePaths.some((f) => path.resolve(f) === resolvedPath)) {
+      continue;
+    }
 
     try {
       if (typeof correctedContent === "string" && correctedContent.trim().length > 0) {
-        await fs.writeFile(writePath, correctedContent);
+        await fs.writeFile(resolvedPath, correctedContent);
         fixedCount++;
       }
     } catch {
