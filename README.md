@@ -27,7 +27,6 @@ AGENT-FORGE is a Context Engineering Toolkit that generates GitHub Copilot custo
 - [Features](#features)
   - [7 Artifact Types](#7-artifact-types)
   - [Project Modes](#project-modes)
-  - [Speed Modes](#speed-modes)
   - [Smart Merging](#smart-merging)
 - [How It Works](#how-it-works)
 - [Prerequisites](#prerequisites)
@@ -65,13 +64,6 @@ AGENT-FORGE is a Context Engineering Toolkit that generates GitHub Copilot custo
 |------|-------------|
 | **Greenfield** | Provide a description. The planner extracts the tech stack, decomposes domains, and generates everything from scratch. |
 | **Brownfield** | The planner scans your codebase — `package.json`, source files, directory structure, existing `.github/` config — and creates a plan aligned to your real patterns. |
-
-### Speed Modes
-
-| Mode | How it works | Cost |
-|------|-------------|------|
-| **Standard** | Single Copilot CLI session, orchestrator creates all files sequentially | ~2 PRU |
-| **Turbo** | Single session with `/fleet` — parallel subagents, each with their own context | ~N+1 PRU |
 
 ### Smart Merging
 
@@ -280,7 +272,6 @@ The analyzer detects:
 | `--description <text>` | Use case description (skip prompt) |
 | `--model <model>` | AI model to use (skip prompt) |
 | `--strategy <strategy>` | Analyze strategy: `auto` (scan-only) or `guided` (scan + custom requirements) |
-| `--speed <speed>` | `standard` or `turbo` |
 | `--use-cases <ids>` | Comma-separated template IDs (e.g., `code-review,testing`) |
 | `--skip-check` | Skip the prerequisite check |
 | `--force` | Overwrite existing files |
@@ -289,7 +280,7 @@ The analyzer detects:
 forge init
 forge init --mode templates --use-cases code-review,testing
 forge init --mode analyze --strategy auto
-forge init --mode create --description "Next.js app" --model claude-sonnet-4.6 --speed turbo
+forge init --mode create --description "Next.js app" --model claude-sonnet-4.6
 ```
 
 </details>
@@ -302,7 +293,6 @@ forge init --mode create --description "Next.js app" --model claude-sonnet-4.6 -
 | `--model <model>` | AI model to use |
 | `--mode <mode>` | `discovery`, `full`, `on-demand`, `mcp-server`, `hooks`, `agentic-workflow` |
 | `--types <types>` | Comma-separated artifact types for on-demand mode |
-| `--speed <speed>` | `standard` or `turbo` |
 
 ```bash
 forge generate "API rate limiter with per-tenant limits"
@@ -310,7 +300,6 @@ forge generate "Security scanner" --model claude-opus-4.6
 forge generate "CI/CD automation" --mode hooks
 forge generate "Dev tooling" --mode mcp-server
 forge generate "Testing tools" --mode on-demand --types agent,hook
-forge generate "Full-stack app" --speed turbo
 ```
 
 </details>
